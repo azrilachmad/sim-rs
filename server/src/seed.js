@@ -62,6 +62,7 @@ const seedData = async () => {
 
     // --- DOCTORS ---
     const doctors = doctorsResult.data || [];
+    const doctorIds = new Set();
     for (const d of doctors) {
       await Doctor.create({
         id: d.id,
@@ -72,13 +73,30 @@ const seedData = async () => {
         spesialis: d.spesialis || '',
         poli: d.poli || '',
       });
+      doctorIds.add(d.id);
     }
     console.log(`✅ Doctors seeded: ${doctors.length} records (from Odoo)`);
 
-    // --- DOCTOR SCHEDULES ---
+    // --- DOCTOR SCHEDULES + sync missing doctors ---
     const jadwalDokter = jadwalResult.data || [];
     let scheduleCount = 0;
+    let missingDoctors = 0;
     for (const d of jadwalDokter) {
+      // If doctor from jadwal not in doctors table, create it
+      if (!doctorIds.has(d.id)) {
+        await Doctor.create({
+          id: d.id,
+          name: d.nama_dokter || '',
+          kode: d.kode || '',
+          gender: '',
+          tipe_nakes: '',
+          spesialis: d.spesialis || '',
+          poli: d.poli || '',
+        });
+        doctorIds.add(d.id);
+        missingDoctors++;
+      }
+
       if (d.jadwal && d.jadwal.length > 0) {
         for (const j of d.jadwal) {
           await DoctorSchedule.create({
@@ -89,6 +107,9 @@ const seedData = async () => {
           scheduleCount++;
         }
       }
+    }
+    if (missingDoctors > 0) {
+      console.log(`⚠️  ${missingDoctors} dokter dari jadwal tidak ada di /doctors → otomatis ditambahkan`);
     }
     console.log(`✅ Doctor schedules seeded: ${scheduleCount} records (from Odoo)`);
 
