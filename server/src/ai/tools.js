@@ -1,111 +1,55 @@
 const toolDeclarations = [
   {
-    name: 'getDepartments',
-    description: 'Mendapatkan daftar semua departemen/poli yang tersedia di rumah sakit, beserta deskripsinya.',
+    name: 'getDoctorSchedule',
+    description: 'Mencari jadwal praktek dokter dari database rumah sakit. Gunakan function ini SETIAP kali user bertanya tentang dokter atau jadwal. JANGAN mengarang data tanpa memanggil function ini terlebih dahulu.',
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        search: {
+          type: 'string',
+          description: 'Kata kunci pencarian: nama dokter (contoh: "Alexander"), spesialis (contoh: "anak"), atau nama poli (contoh: "GIGI"). Kosongkan string "" untuk menampilkan semua dokter.',
+        },
+      },
     },
   },
   {
-    name: 'searchDoctors',
-    description: 'Mencari dokter berdasarkan nama, spesialisasi, atau departemen. Bisa mencari semua dokter jika tidak ada filter.',
+    name: 'getPatients',
+    description: 'Mencari data pasien berdasarkan nama di database rumah sakit. WAJIB dipanggil saat proses reservasi untuk mendapatkan patient_id yang valid. JANGAN menggunakan ID pasien yang tidak berasal dari hasil function ini.',
     parameters: {
       type: 'object',
       properties: {
         name: {
           type: 'string',
-          description: 'Nama dokter yang dicari (pencarian parsial, contoh: "Budi")',
-        },
-        specialization: {
-          type: 'string',
-          description: 'Spesialisasi dokter (contoh: "Anak", "Jantung", "Mata")',
-        },
-        departmentName: {
-          type: 'string',
-          description: 'Nama departemen/poli (contoh: "Poli Anak", "Poli Jantung")',
+          description: 'Nama pasien yang dicari. Contoh: "Tati Suheti". Pencarian bersifat partial match.',
         },
       },
+      required: ['name'],
     },
   },
   {
-    name: 'getDoctorSchedule',
-    description: 'Mendapatkan jadwal praktek lengkap seorang dokter berdasarkan ID dokter.',
+    name: 'createAppointment',
+    description: 'Membuat reservasi/appointment baru. HANYA panggil function ini SETELAH user mengkonfirmasi semua data (jawab "ya/benar/oke"). Parameter patient_id dan doctor_id HARUS berasal dari hasil getPatients dan getDoctorSchedule.',
     parameters: {
       type: 'object',
       properties: {
-        doctorId: {
+        patient_id: {
           type: 'integer',
-          description: 'ID dokter yang ingin dilihat jadwalnya',
+          description: 'ID pasien dari hasil getPatients. Contoh: 1. JANGAN gunakan ID yang tidak dari hasil pencarian.',
         },
-      },
-      required: ['doctorId'],
-    },
-  },
-  {
-    name: 'getAvailableSlots',
-    description: 'Mengecek slot waktu yang tersedia untuk reservasi dengan dokter tertentu pada tanggal tertentu.',
-    parameters: {
-      type: 'object',
-      properties: {
-        doctorId: {
+        doctor_id: {
           type: 'integer',
-          description: 'ID dokter',
+          description: 'ID dokter dari hasil getDoctorSchedule. Contoh: 90. JANGAN gunakan ID yang tidak dari hasil pencarian.',
         },
-        date: {
+        appointment_date: {
           type: 'string',
-          description: 'Tanggal yang ingin dicek dalam format YYYY-MM-DD (contoh: "2026-04-15")',
+          description: 'Tanggal dan waktu appointment. Format WAJIB: "YYYY-MM-DD HH:MM:SS". Contoh: "2026-04-17 10:00:00". Tanggal HARUS sesuai jadwal dokter.',
+        },
+        keluhan: {
+          type: 'string',
+          description: 'Keluhan pasien dalam bentuk kalimat. Contoh: "Demam tinggi sejak 3 hari yang lalu".',
         },
       },
-      required: ['doctorId', 'date'],
-    },
-  },
-  {
-    name: 'createReservation',
-    description: 'Membuat reservasi baru untuk pasien. Reservasi akan berstatus PENDING dan perlu dikonfirmasi oleh admin.',
-    parameters: {
-      type: 'object',
-      properties: {
-        patientName: {
-          type: 'string',
-          description: 'Nama lengkap pasien',
-        },
-        patientPhone: {
-          type: 'string',
-          description: 'Nomor telepon pasien',
-        },
-        patientEmail: {
-          type: 'string',
-          description: 'Email pasien (opsional)',
-        },
-        doctorId: {
-          type: 'integer',
-          description: 'ID dokter yang dituju',
-        },
-        dateTime: {
-          type: 'string',
-          description: 'Tanggal dan waktu reservasi dalam format ISO (contoh: "2026-04-15T09:00:00")',
-        },
-        reason: {
-          type: 'string',
-          description: 'Alasan atau keluhan pasien',
-        },
-      },
-      required: ['patientName', 'patientPhone', 'doctorId', 'dateTime'],
-    },
-  },
-  {
-    name: 'checkReservation',
-    description: 'Mengecek status reservasi berdasarkan kode booking.',
-    parameters: {
-      type: 'object',
-      properties: {
-        bookingCode: {
-          type: 'string',
-          description: 'Kode booking reservasi (contoh: "RS-ABC12345")',
-        },
-      },
-      required: ['bookingCode'],
+      required: ['patient_id', 'doctor_id', 'appointment_date', 'keluhan'],
     },
   },
 ];

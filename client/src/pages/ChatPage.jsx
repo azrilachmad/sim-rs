@@ -8,13 +8,14 @@ import SendIcon from '@mui/icons-material/Send';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { sendChatMessage } from '../services/api';
 
 const SUGGESTIONS = [
-  '🏥 Poli apa saja yang tersedia?',
-  '👨‍⚕️ Siapa saja dokter spesialis anak?',
-  '📅 Jadwal dokter jantung',
-  '📝 Saya ingin reservasi',
+  '📅 Lihat jadwal dokter',
+  '👨‍⚕️ Jadwal dokter spesialis anak',
+  '📝 Saya ingin buat reservasi',
 ];
 
 export default function ChatPage() {
@@ -22,7 +23,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([
     {
       role: 'model',
-      content: 'Halo! 👋 Saya **RS Sehat AI**, asisten virtual rumah sakit Anda.\n\nSaya bisa membantu Anda untuk:\n- 🏥 Informasi **poli & departemen**\n- 👨‍⚕️ Mencari **dokter & spesialis**\n- 📅 Melihat **jadwal praktek** dokter\n- 📝 Membuat **reservasi** online\n\nSilakan tanyakan apa saja! 😊',
+      content: 'Halo! 👋 Saya **RS Sehat AI**, asisten virtual rumah sakit Anda.\n\nSaya bisa membantu Anda untuk:\n- 📅 Melihat **jadwal praktek** dokter\n- 📝 Membuat **reservasi** online\n\nSilakan tanyakan apa saja! 😊',
     },
   ]);
   const [inputValue, setInputValue] = useState('');
@@ -108,15 +109,15 @@ export default function ChatPage() {
               </div>
             )}
             <div
-              className={`max-w-[80%] md:max-w-[65%] rounded-2xl px-4 py-3 ${
+              className={`rounded-2xl px-4 py-3 ${
                 msg.role === 'user'
-                  ? 'bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-br-md'
-                  : 'glass rounded-bl-md'
+                  ? 'max-w-[80%] md:max-w-[65%] bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-br-md'
+                  : 'max-w-[90%] md:max-w-[80%] glass rounded-bl-md overflow-x-auto'
               }`}
             >
               {msg.role === 'model' ? (
                 <div className="markdown-content text-sm text-slate-200 leading-relaxed">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{msg.content}</ReactMarkdown>
                 </div>
               ) : (
                 <p className="text-sm leading-relaxed">{msg.content}</p>

@@ -1,308 +1,198 @@
-const { Op } = require('sequelize');
-const { v4: uuidv4 } = require('uuid');
-const { Department, Doctor, Schedule, Reservation } = require('../models');
-
-const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const odooApi = require('../services/odoo-api');
 
 /**
- * Get all departments
+ * Normalize name for fuzzy search:
+ * strips "dr.", "drg.", "dokter", "ns.", "apt.", titles, punctuation
  */
-async function getDepartments() {
-  const departments = await Department.findAll({
-    include: [{
-      model: Doctor,
-      as: 'doctors',
-      attributes: ['id', 'name', 'specialization'],
-    }],
-    order: [['name', 'ASC']],
-  });
-
-  return departments.map(dept => ({
-    id: dept.id,
-    name: dept.name,
-    description: dept.description,
-    icon: dept.icon,
-    jumlahDokter: dept.doctors.length,
-    dokter: dept.doctors.map(d => ({ id: d.id, nama: d.name, spesialisasi: d.specialization })),
-  }));
+function normalizeName(str) {
+  return (str || '')
+    .toLowerCase()
+    .replace(/\b(dr|drg|dokter|ns|apt|sp)\b\.?/g, '')
+    .replace(/,.*$/g, '')
+    .replace(/[.,\-()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
- * Search doctors by name, specialization, or department
+ * Check if search query matches a doctor entry
  */
-async function searchDoctors({ name, specialization, departmentName }) {
-  const where = {};
-  const includeWhere = {};
+function matchesDoctor(doctor, query) {
+  const q = normalizeName(query);
+  const name = normalizeName(doctor.nama_dokter);
+  const spesialis = (doctor.spesialis || '').toLowerCase();
+  const poli = (doctor.poli || '').toLowerCase();
+  const rawName = (doctor.nama_dokter || '').toLowerCase();
 
-  if (name) {
-    where.name = { [Op.like]: `%${name}%` };
-  }
-  if (specialization) {
-    where.specialization = { [Op.like]: `%${specialization}%` };
-  }
-  if (departmentName) {
-    includeWhere.name = { [Op.like]: `%${departmentName}%` };
-  }
+  if (rawName.includes(query.toLowerCase())) return true;
+  if (name.includes(q)) return true;
+  const queryWords = q.split(' ').filter(w => w.length > 1);
+  if (queryWords.length > 0 && queryWords.every(w => name.includes(w))) return true;
+  if (spesialis.includes(query.toLowerCase())) return true;
+  if (poli.includes(query.toLowerCase())) return true;
 
-  const doctors = await Doctor.findAll({
-    where,
-    include: [
-      {
-        model: Department,
-        as: 'department',
-        where: Object.keys(includeWhere).length > 0 ? includeWhere : undefined,
-        attributes: ['id', 'name', 'icon'],
-      },
-      {
-        model: Schedule,
-        as: 'schedules',
-        where: { isActive: true },
-        required: false,
-        attributes: ['dayOfWeek', 'startTime', 'endTime'],
-      },
-    ],
-    order: [['name', 'ASC']],
-  });
-
-  return doctors.map(doc => ({
-    id: doc.id,
-    nama: doc.name,
-    spesialisasi: doc.specialization,
-    departemen: doc.department?.name || '-',
-    bio: doc.bio,
-    jadwal: doc.schedules.map(s => ({
-      hari: DAY_NAMES[s.dayOfWeek],
-      jam: `${s.startTime} - ${s.endTime}`,
-    })),
-  }));
+  return false;
 }
 
 /**
- * Get full schedule for a specific doctor
+ * Format jadwal: group by time slot for compact display
  */
-async function getDoctorSchedule({ doctorId }) {
-  const doctor = await Doctor.findByPk(doctorId, {
-    include: [
-      {
-        model: Department,
-        as: 'department',
-        attributes: ['name'],
-      },
-      {
-        model: Schedule,
-        as: 'schedules',
-        where: { isActive: true },
-        required: false,
-        order: [['dayOfWeek', 'ASC']],
-      },
-    ],
-  });
+function formatJadwal(jadwalList) {
+  if (!jadwalList || jadwalList.length === 0) return 'Belum ada jadwal';
 
-  if (!doctor) {
-    return { error: 'Dokter tidak ditemukan.' };
+  const timeGroups = {};
+  for (const j of jadwalList) {
+    const time = j.jadwal_praktek;
+    if (!timeGroups[time]) timeGroups[time] = [];
+    timeGroups[time].push(j.hari);
   }
 
-  return {
-    id: doctor.id,
-    nama: doctor.name,
-    spesialisasi: doctor.specialization,
-    departemen: doctor.department?.name || '-',
-    bio: doctor.bio,
-    jadwal: doctor.schedules
-      .sort((a, b) => a.dayOfWeek - b.dayOfWeek)
-      .map(s => ({
-        hari: DAY_NAMES[s.dayOfWeek],
-        hariKe: s.dayOfWeek,
-        jamMulai: s.startTime,
-        jamSelesai: s.endTime,
-      })),
-  };
+  return Object.entries(timeGroups)
+    .map(([time, days]) => `${days.join(', ')}: ${time}`)
+    .join(' | ');
 }
 
 /**
- * Get available time slots for a doctor on a specific date
+ * Get doctor schedules, optionally filtered.
+ * Returns max 5 results with pagination hint.
  */
-async function getAvailableSlots({ doctorId, date }) {
-  const targetDate = new Date(date);
-  const dayOfWeek = targetDate.getDay();
+async function getDoctorSchedule({ search } = {}) {
+  try {
+    const result = await odooApi.getJadwalDokter();
+    let data = result.data || [];
 
-  // Find doctor's schedule for this day
-  const schedule = await Schedule.findOne({
-    where: { doctorId, dayOfWeek, isActive: true },
-    include: [{ model: Doctor, as: 'doctor', attributes: ['name'] }],
-  });
-
-  if (!schedule) {
-    return {
-      available: false,
-      message: `Dokter tidak memiliki jadwal praktek pada hari ${DAY_NAMES[dayOfWeek]}.`,
-    };
-  }
-
-  // Get existing reservations for this date
-  const startOfDay = new Date(date + 'T00:00:00');
-  const endOfDay = new Date(date + 'T23:59:59');
-
-  const existingReservations = await Reservation.findAll({
-    where: {
-      doctorId,
-      dateTime: { [Op.between]: [startOfDay, endOfDay] },
-      status: { [Op.notIn]: ['CANCELLED'] },
-    },
-  });
-
-  const bookedTimes = existingReservations.map(r => {
-    const dt = new Date(r.dateTime);
-    return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
-  });
-
-  // Generate 30-minute slots
-  const slots = [];
-  const [startH, startM] = schedule.startTime.split(':').map(Number);
-  const [endH, endM] = schedule.endTime.split(':').map(Number);
-  
-  let currentH = startH;
-  let currentM = startM;
-
-  while (currentH < endH || (currentH === endH && currentM < endM)) {
-    const timeStr = `${String(currentH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`;
-    slots.push({
-      waktu: timeStr,
-      tersedia: !bookedTimes.includes(timeStr),
-    });
-    currentM += 30;
-    if (currentM >= 60) {
-      currentH += 1;
-      currentM -= 60;
+    if (search) {
+      data = data.filter(d => matchesDoctor(d, search));
     }
-  }
 
-  return {
-    available: true,
-    dokter: schedule.doctor?.name,
-    tanggal: date,
-    hari: DAY_NAMES[dayOfWeek],
-    jamPraktek: `${schedule.startTime} - ${schedule.endTime}`,
-    slots,
-  };
+    const withSchedule = data.filter(d => d.jadwal && d.jadwal.length > 0);
+
+    if (withSchedule.length === 0) {
+      return {
+        jumlah: 0,
+        pesan: search
+          ? `Tidak ditemukan dokter dengan kata kunci "${search}". Coba kata kunci lain.`
+          : 'Tidak ada dokter dengan jadwal saat ini.',
+        dokter: [],
+      };
+    }
+
+    // Limit to 5 per response
+    const MAX_DISPLAY = 5;
+    const displayed = withSchedule.slice(0, MAX_DISPLAY);
+    const remaining = withSchedule.length - displayed.length;
+
+    return {
+      jumlah_total: withSchedule.length,
+      jumlah_ditampilkan: displayed.length,
+      sisa_belum_ditampilkan: remaining,
+      pesan: remaining > 0
+        ? `Menampilkan ${displayed.length} dari ${withSchedule.length} dokter. Tanyakan user jika ingin melihat lebih banyak.`
+        : undefined,
+      dokter: displayed.map(d => ({
+        id: d.id,
+        nama: d.nama_dokter,
+        poli: d.poli || '-',
+        spesialis: d.spesialis || '-',
+        jadwal: formatJadwal(d.jadwal),
+      })),
+    };
+  } catch (error) {
+    console.error('❌ getDoctorSchedule error:', error.message);
+    return { error: 'Gagal mengambil data jadwal dokter: ' + error.message };
+  }
 }
 
 /**
- * Create a new reservation
+ * Search patients by name
  */
-async function createReservation({ patientName, patientPhone, patientEmail, doctorId, dateTime, reason }) {
-  // Check doctor exists
-  const doctor = await Doctor.findByPk(doctorId, {
-    include: [{ model: Department, as: 'department' }],
-  });
-  
-  if (!doctor) {
-    return { success: false, message: 'Dokter tidak ditemukan.' };
+async function getPatients({ name } = {}) {
+  try {
+    const result = await odooApi.getPatients();
+    let patients = result.data || [];
+
+    if (name) {
+      const q = name.toLowerCase();
+      patients = patients.filter(p => (p.name || '').toLowerCase().includes(q));
+    }
+
+    if (patients.length === 0) {
+      return {
+        jumlah: 0,
+        pesan: `Pasien dengan nama "${name}" tidak ditemukan di database. Pastikan nama dieja dengan benar.`,
+        data: [],
+      };
+    }
+
+    return {
+      jumlah: patients.length,
+      data: patients.slice(0, 10).map(p => ({
+        id: p.id,
+        nama: p.name,
+        noMR: p.no_mr,
+        umur: p.umur,
+        jenisKelamin: p.sex,
+      })),
+    };
+  } catch (error) {
+    console.error('❌ getPatients error:', error.message);
+    return { error: 'Gagal mencari data pasien: ' + error.message };
   }
-
-  // Check if slot is available
-  const targetDate = new Date(dateTime);
-  const dayOfWeek = targetDate.getDay();
-
-  const schedule = await Schedule.findOne({
-    where: { doctorId, dayOfWeek, isActive: true },
-  });
-
-  if (!schedule) {
-    return { success: false, message: `Dokter tidak praktek pada hari ${DAY_NAMES[dayOfWeek]}.` };
-  }
-
-  // Check for existing reservation at this time
-  const existing = await Reservation.findOne({
-    where: {
-      doctorId,
-      dateTime: targetDate,
-      status: { [Op.notIn]: ['CANCELLED'] },
-    },
-  });
-
-  if (existing) {
-    return { success: false, message: 'Slot waktu ini sudah terisi. Silakan pilih waktu lain.' };
-  }
-
-  // Generate booking code
-  const bookingCode = 'RS-' + uuidv4().substring(0, 8).toUpperCase();
-
-  const reservation = await Reservation.create({
-    patientName,
-    patientPhone,
-    patientEmail: patientEmail || '',
-    doctorId,
-    dateTime: targetDate,
-    reason: reason || '',
-    status: 'PENDING',
-    bookingCode,
-  });
-
-  return {
-    success: true,
-    message: 'Reservasi berhasil dibuat!',
-    detail: {
-      kodeBooking: reservation.bookingCode,
-      namaPasien: reservation.patientName,
-      telepon: reservation.patientPhone,
-      dokter: doctor.name,
-      departemen: doctor.department?.name || '-',
-      tanggalWaktu: dateTime,
-      alasan: reason || '-',
-      status: 'PENDING (Menunggu konfirmasi admin)',
-    },
-  };
 }
 
 /**
- * Check reservation status by booking code
+ * Create appointment — only call after user confirmation
  */
-async function checkReservation({ bookingCode }) {
-  const reservation = await Reservation.findOne({
-    where: { bookingCode },
-    include: [{
-      model: Doctor,
-      as: 'doctor',
-      include: [{ model: Department, as: 'department' }],
-    }],
-  });
+async function createAppointment({ patient_id, doctor_id, appointment_date, keluhan }) {
+  try {
+    const pid = parseInt(patient_id);
+    const did = parseInt(doctor_id);
 
-  if (!reservation) {
-    return { found: false, message: 'Reservasi dengan kode booking tersebut tidak ditemukan.' };
+    console.log('🔧 createAppointment args:', { pid, did, appointment_date, keluhan });
+
+    if (!pid || !did) {
+      return { success: false, message: 'patient_id dan doctor_id harus berupa angka valid.' };
+    }
+
+    if (!appointment_date) {
+      return { success: false, message: 'appointment_date wajib diisi. Format: YYYY-MM-DD HH:MM:SS' };
+    }
+
+    // Validate date format
+    const dateRegex = /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}$/;
+    if (!dateRegex.test(appointment_date)) {
+      return {
+        success: false,
+        message: `Format tanggal salah: "${appointment_date}". Format yang benar: "YYYY-MM-DD HH:MM:SS". Contoh: "2026-04-17 10:00:00".`,
+      };
+    }
+
+    if (!keluhan || keluhan.trim().length === 0) {
+      return { success: false, message: 'Keluhan pasien wajib diisi.' };
+    }
+
+    const result = await odooApi.createAppointment({
+      patient_id: pid,
+      doctor_id: did,
+      appointment_date: String(appointment_date),
+      keluhan: keluhan.trim(),
+    });
+
+    return {
+      success: true,
+      message: 'Appointment berhasil dibuat!',
+      data: result,
+    };
+  } catch (error) {
+    console.error('❌ createAppointment error:', error.message);
+    return { success: false, message: 'Gagal membuat appointment: ' + error.message };
   }
-
-  const statusLabels = {
-    PENDING: '⏳ Menunggu Konfirmasi',
-    CONFIRMED: '✅ Dikonfirmasi',
-    CANCELLED: '❌ Dibatalkan',
-    COMPLETED: '✔️ Selesai',
-  };
-
-  return {
-    found: true,
-    detail: {
-      kodeBooking: reservation.bookingCode,
-      namaPasien: reservation.patientName,
-      telepon: reservation.patientPhone,
-      dokter: reservation.doctor?.name || '-',
-      departemen: reservation.doctor?.department?.name || '-',
-      tanggalWaktu: reservation.dateTime,
-      alasan: reservation.reason || '-',
-      status: statusLabels[reservation.status] || reservation.status,
-      dibuatPada: reservation.createdAt,
-    },
-  };
 }
 
-// Map function names to handlers
 const functionHandlers = {
-  getDepartments,
-  searchDoctors,
   getDoctorSchedule,
-  getAvailableSlots,
-  createReservation,
-  checkReservation,
+  getPatients,
+  createAppointment,
 };
 
 module.exports = functionHandlers;

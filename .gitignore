@@ -26,3 +26,5 @@ npm-debug.log*
 
 # Prisma (legacy - removed)
 prisma/
+
+collection/
