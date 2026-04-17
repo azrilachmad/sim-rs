@@ -41,6 +41,19 @@ router.post('/register', async (req, res) => {
       }
     }
 
+    // If still no match, CREATE a new patient record
+    if (!patient_id) {
+      const newPatient = await Patient.create({
+        name: name,
+        no_mr: '',
+        no_reg: '',
+        umur: '',
+        sex: '',
+      });
+      patient_id = newPatient.id;
+      console.log(`👤 New patient created: ${name} (ID: ${patient_id})`);
+    }
+
     const user = await User.create({
       name,
       email,
