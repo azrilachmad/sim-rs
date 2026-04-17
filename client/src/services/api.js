@@ -1,6 +1,18 @@
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 /**
+ * Safe JSON parse — handles non-JSON responses (e.g. Nginx HTML errors)
+ */
+async function safeJson(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('Server sedang tidak tersedia. Silakan coba beberapa saat lagi.');
+  }
+}
+
+/**
  * Get stored auth token
  */
 function getToken() {
@@ -28,7 +40,7 @@ export async function login(email, password) {
     body: JSON.stringify({ email, password }),
   });
 
-  const data = await response.json();
+  const data = await safeJson(response);
   if (!response.ok) throw new Error(data.error || 'Login gagal.');
 
   localStorage.setItem('rs_ai_token', data.token);
@@ -46,7 +58,7 @@ export async function register(name, email, password, extras = {}) {
     body: JSON.stringify({ name, email, password, ...extras }),
   });
 
-  const data = await response.json();
+  const data = await safeJson(response);
   if (!response.ok) throw new Error(data.error || 'Registrasi gagal.');
 
   localStorage.setItem('rs_ai_token', data.token);
@@ -94,9 +106,9 @@ export async function sendChatMessage(messages) {
   }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
+    const error = await safeJson(response).catch(() => ({}));
     throw new Error(error.error || 'Gagal menghubungi server.');
   }
 
-  return response.json();
+  return safeJson(response);
 }

@@ -134,9 +134,17 @@ router.post('/appointments', async (req, res) => {
       });
     }
 
-    // Lookup patient and doctor (optional — may not exist locally)
+    // Check patient exists
     const patient = await Patient.findByPk(pid);
+    if (!patient) {
+      return res.status(404).json({ error: `Pasien dengan ID ${pid} tidak ditemukan.` });
+    }
+
+    // Check doctor exists
     const doctor = await Doctor.findByPk(did);
+    if (!doctor) {
+      return res.status(404).json({ error: `Dokter dengan ID ${did} tidak ditemukan.` });
+    }
 
     // Generate name like APTxxx
     const lastAppt = await Appointment.findOne({ order: [['id', 'DESC']] });
@@ -146,20 +154,20 @@ router.post('/appointments', async (req, res) => {
     const appointment = await Appointment.create({
       name,
       patient_id: pid,
-      patient_name: patient?.name || '',
+      patient_name: patient.name,
       doctor_id: did,
-      doctor_name: doctor?.name || '',
+      doctor_name: doctor.name,
       appointment_date: String(appointment_date),
       state: 'submit',
       keluhan: keluhan || '',
-      poli: doctor?.poli || '',
+      poli: doctor.poli || '',
     });
 
     res.status(201).json({
       id: appointment.id,
       name: appointment.name,
-      patient: patient?.name || `Pasien #${pid}`,
-      doctor: doctor?.name || `Dokter #${did}`,
+      patient: patient.name,
+      doctor: doctor.name,
       appointment_date: appointment.appointment_date,
       state: appointment.state,
       keluhan: appointment.keluhan,
