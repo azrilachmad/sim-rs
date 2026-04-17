@@ -1,5 +1,3 @@
-const path = require('path');
-const fs = require('fs');
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
@@ -9,10 +7,28 @@ const DB_PASS = process.env.DB_PASS || '';
 const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = process.env.DB_PORT || 3306;
 
-const RESULT_DIR = path.join(__dirname, '..', '..', 'collection', 'result');
+const ODOO_URL = process.env.ODOO_BASE_URL || 'http://103.171.84.159:8069';
+const ODOO_TOKEN = process.env.ODOO_TOKEN || 'Bearer SECRET123';
 
-function loadJSON(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+/**
+ * Fetch data from Odoo API
+ */
+async function fetchOdoo(endpoint) {
+  const url = `${ODOO_URL}${endpoint}`;
+  console.log(`🌐 Fetching: ${url}`);
+
+  const response = await fetch(url, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': ODOO_TOKEN,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Odoo API error: ${response.status} - ${await response.text()}`);
+  }
+
+  return response.json();
 }
 
 const seedData = async () => {
@@ -28,19 +44,28 @@ const seedData = async () => {
     await connection.end();
     console.log(`✅ Database "${DB_NAME}" ready.`);
 
-    // 2. Now connect via Sequelize and sync
+    // 2. Connect via Sequelize and sync
     const sequelize = require('./config/database');
     const { Doctor, DoctorSchedule, Patient, Appointment } = require('./models');
 
     await sequelize.sync({ force: true });
     console.log('🗄️  Tables recreated.');
 
+    // --- FETCH FROM ODOO API ---
+    console.log('\n📡 Fetching data from Odoo API...');
+
+    const [doctorsResult, jadwalResult, patientsResult] = await Promise.all([
+      fetchOdoo('/api/v1/doctors'),
+      fetchOdoo('/api/v1/jadwal-dokter'),
+      fetchOdoo('/api/v1/patients'),
+    ]);
+
     // --- DOCTORS ---
-    const doctorsData = loadJSON(path.join(RESULT_DIR, 'doctors', 'get-doctors.json'));
-    for (const d of doctorsData.data) {
+    const doctors = doctorsResult.data || [];
+    for (const d of doctors) {
       await Doctor.create({
         id: d.id,
-        name: d.name,
+        name: d.name || d.nama_dokter || '',
         kode: d.kode || '',
         gender: d.gender || '',
         tipe_nakes: d.tipe_nakes || '',
@@ -48,12 +73,12 @@ const seedData = async () => {
         poli: d.poli || '',
       });
     }
-    console.log(`✅ Doctors seeded: ${doctorsData.data.length} records`);
+    console.log(`✅ Doctors seeded: ${doctors.length} records (from Odoo)`);
 
     // --- DOCTOR SCHEDULES ---
-    const jadwalData = loadJSON(path.join(RESULT_DIR, 'doctors', 'get-jadwal-doctors.json'));
+    const jadwalDokter = jadwalResult.data || [];
     let scheduleCount = 0;
-    for (const d of jadwalData.data) {
+    for (const d of jadwalDokter) {
       if (d.jadwal && d.jadwal.length > 0) {
         for (const j of d.jadwal) {
           await DoctorSchedule.create({
@@ -65,29 +90,29 @@ const seedData = async () => {
         }
       }
     }
-    console.log(`✅ Doctor schedules seeded: ${scheduleCount} records`);
+    console.log(`✅ Doctor schedules seeded: ${scheduleCount} records (from Odoo)`);
 
     // --- PATIENTS ---
-    const patientsData = loadJSON(path.join(RESULT_DIR, 'Patients', 'get-patients.json'));
-    for (const p of patientsData.data) {
+    const patients = patientsResult.data || [];
+    for (const p of patients) {
       await Patient.create({
         id: p.id,
-        name: p.name,
+        name: p.name || '',
         no_mr: p.no_mr || '',
         no_reg: p.no_reg || '',
         umur: p.umur || '',
         sex: p.sex || '',
       });
     }
-    console.log(`✅ Patients seeded: ${patientsData.data.length} records`);
+    console.log(`✅ Patients seeded: ${patients.length} records (from Odoo)`);
 
-    // --- APPOINTMENTS: SKIPPED (tabel tetap dibuat tapi kosong) ---
+    // --- APPOINTMENTS: SKIPPED ---
     console.log('⏭️  Appointments: tabel dibuat, data TIDAK di-seed (kosong).');
 
-    console.log('\n🎉 Seeding selesai!');
+    console.log('\n🎉 Seeding selesai! Data dari Odoo API berhasil disinkronkan.');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Seeding gagal:', error);
+    console.error('❌ Seeding gagal:', error.message || error);
     process.exit(1);
   }
 };
