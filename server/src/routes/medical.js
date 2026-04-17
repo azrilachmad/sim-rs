@@ -154,7 +154,9 @@ router.post('/appointments', async (req, res) => {
     const appointment = await Appointment.create({
       name,
       patient_id: pid,
+      patient_name: patient.name,
       doctor_id: did,
+      doctor_name: doctor.name,
       appointment_date: String(appointment_date),
       state: 'submit',
       keluhan: keluhan || '',
