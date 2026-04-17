@@ -128,21 +128,33 @@ const seedData = async () => {
 
     console.log(`📋 Total appointments fetched: ${allAppointments.length}`);
 
+    // Disable FK checks for appointment seeding (Odoo data may reference IDs not in local tables)
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+
+    let aptSuccess = 0;
+    let aptSkipped = 0;
     for (const apt of allAppointments) {
-      await Appointment.create({
-        id: apt.id,
-        name: apt.name || '',
-        patient_id: apt.patient_id || 0,
-        patient_name: apt.patient || '',
-        doctor_id: apt.doctor_id || 0,
-        doctor_name: apt.doctor || '',
-        appointment_date: apt.appointment_date || '',
-        state: apt.state || 'submit',
-        keluhan: apt.keluhan || '',
-        poli: apt.poli || '',
-      });
+      try {
+        await Appointment.create({
+          id: apt.id,
+          name: apt.name || '',
+          patient_id: apt.patient_id || 0,
+          patient_name: apt.patient || '',
+          doctor_id: apt.doctor_id || 0,
+          doctor_name: apt.doctor || '',
+          appointment_date: apt.appointment_date || '',
+          state: apt.state || 'submit',
+          keluhan: apt.keluhan || '',
+          poli: apt.poli || '',
+        });
+        aptSuccess++;
+      } catch (err) {
+        aptSkipped++;
+      }
     }
-    console.log(`✅ Appointments seeded: ${allAppointments.length} records (from Odoo)`);
+
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+    console.log(`✅ Appointments seeded: ${aptSuccess} records (${aptSkipped} skipped) (from Odoo)`);
 
     console.log('\n🎉 Seeding selesai! Data dari Odoo API berhasil disinkronkan.');
     process.exit(0);
