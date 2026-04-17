@@ -6,6 +6,8 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [umur, setUmur] = useState('');
+  const [sex, setSex] = useState('');
   const [noMR, setNoMR] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,7 +19,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await register(name, email, password, noMR || undefined);
+      await register(name, email, password, { umur, sex, no_mr: noMR || undefined });
       navigate('/chat');
     } catch (err) {
       setError(err.message);
@@ -74,6 +76,34 @@ export default function RegisterPage() {
               required
               minLength={6}
             />
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="umur">Umur</label>
+              <input
+                id="umur"
+                type="text"
+                value={umur}
+                onChange={(e) => setUmur(e.target.value)}
+                placeholder="Contoh: 25 Tahun"
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="sex">Jenis Kelamin</label>
+              <select
+                id="sex"
+                value={sex}
+                onChange={(e) => setSex(e.target.value)}
+                required
+              >
+                <option value="">-- Pilih --</option>
+                <option value="Laki-laki">Laki-laki</option>
+                <option value="Perempuan">Perempuan</option>
+              </select>
+            </div>
           </div>
 
           <div className="form-group">

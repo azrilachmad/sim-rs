@@ -10,7 +10,7 @@ const router = express.Router();
  */
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, no_mr } = req.body;
+    const { name, email, password, no_mr, umur, sex } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nama, email, dan password wajib diisi.' });
@@ -45,10 +45,10 @@ router.post('/register', async (req, res) => {
     if (!patient_id) {
       const newPatient = await Patient.create({
         name: name,
-        no_mr: '',
+        no_mr: no_mr || '',
         no_reg: '',
-        umur: '',
-        sex: '',
+        umur: umur || '',
+        sex: sex || '',
       });
       patient_id = newPatient.id;
       console.log(`👤 New patient created: ${name} (ID: ${patient_id})`);
