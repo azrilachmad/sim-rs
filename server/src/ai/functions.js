@@ -81,7 +81,7 @@ function summarizeJadwal(jadwalList) {
  * Get doctor schedules, optionally filtered.
  * Returns max 5 results with pagination hint.
  */
-async function getDoctorSchedule({ search } = {}) {
+async function getDoctorSchedule({ search, offset = 0 } = {}) {
   try {
     const result = await odooApi.getJadwalDokter();
     let data = result.data || [];
@@ -102,18 +102,21 @@ async function getDoctorSchedule({ search } = {}) {
       };
     }
 
-    // Limit to 5 per response
+    // Pagination
     const MAX_DISPLAY = 5;
-    const displayed = withSchedule.slice(0, MAX_DISPLAY);
-    const remaining = withSchedule.length - displayed.length;
+    const startIdx = parseInt(offset) || 0;
+    const displayed = withSchedule.slice(startIdx, startIdx + MAX_DISPLAY);
+    const remaining = withSchedule.length - (startIdx + displayed.length);
 
     return {
       jumlah_total: withSchedule.length,
       jumlah_ditampilkan: displayed.length,
-      sisa_belum_ditampilkan: remaining,
+      offset_saat_ini: startIdx,
+      offset_berikutnya: remaining > 0 ? startIdx + MAX_DISPLAY : null,
+      sisa_belum_ditampilkan: remaining > 0 ? remaining : 0,
       pesan: remaining > 0
-        ? `Menampilkan ${displayed.length} dari ${withSchedule.length} dokter. Tanyakan user jika ingin melihat lebih banyak.`
-        : undefined,
+        ? `Menampilkan ${displayed.length} dari ${withSchedule.length} dokter (offset: ${startIdx}). Untuk melihat lebih banyak, panggil lagi dengan offset: ${startIdx + MAX_DISPLAY}.`
+        : `Semua ${withSchedule.length} dokter sudah ditampilkan.`,
       dokter: displayed.map(d => ({
         id: d.id,
         nama: d.nama_dokter,

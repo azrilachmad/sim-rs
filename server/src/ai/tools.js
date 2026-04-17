@@ -9,6 +9,10 @@ const toolDeclarations = [
           type: 'string',
           description: 'Kata kunci pencarian: nama dokter (contoh: "Alexander"), spesialis (contoh: "anak"), atau nama poli (contoh: "GIGI"). Kosongkan string "" untuk menampilkan semua dokter.',
         },
+        offset: {
+          type: 'integer',
+          description: 'Offset untuk pagination. Default 0. Jika user minta "lihat lebih banyak" atau "tampilkan semua", gunakan offset sesuai jumlah_ditampilkan sebelumnya (misal: 5, 10, 15).',
+        },
       },
     },
   },
