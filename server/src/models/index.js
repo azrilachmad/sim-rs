@@ -68,11 +68,12 @@ const Appointment = sequelize.define('Appointment', {
 Doctor.hasMany(DoctorSchedule, { foreignKey: 'doctor_id', as: 'jadwal' });
 DoctorSchedule.belongsTo(Doctor, { foreignKey: 'doctor_id' });
 
-Doctor.hasMany(Appointment, { foreignKey: 'doctor_id' });
-Appointment.belongsTo(Doctor, { foreignKey: 'doctor_id', as: 'doctorData' });
+// Appointment associations — NO FK constraints (Odoo data may have IDs not in local tables)
+Doctor.hasMany(Appointment, { foreignKey: 'doctor_id', constraints: false });
+Appointment.belongsTo(Doctor, { foreignKey: 'doctor_id', as: 'doctorData', constraints: false });
 
-Patient.hasMany(Appointment, { foreignKey: 'patient_id' });
-Appointment.belongsTo(Patient, { foreignKey: 'patient_id', as: 'patientData' });
+Patient.hasMany(Appointment, { foreignKey: 'patient_id', constraints: false });
+Appointment.belongsTo(Patient, { foreignKey: 'patient_id', as: 'patientData', constraints: false });
 
 User.belongsTo(Patient, { foreignKey: 'patient_id', as: 'patient' });
 
@@ -84,4 +85,3 @@ module.exports = {
   User,
   Appointment,
 };
-
