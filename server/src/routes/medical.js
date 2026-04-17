@@ -120,7 +120,7 @@ router.get('/appointments', async (req, res) => {
 // POST /api/v1/appointments
 router.post('/appointments', async (req, res) => {
   try {
-    const { patient_id, doctor_id, appointment_date, keluhan } = req.body;
+    const { patient_id, doctor_id, appointment_date, keluhan, doctor_name: bodyDoctorName, poli: bodyPoli } = req.body;
 
     console.log('📝 POST /appointments body:', req.body);
 
@@ -140,11 +140,10 @@ router.post('/appointments', async (req, res) => {
       return res.status(404).json({ error: `Pasien dengan ID ${pid} tidak ditemukan.` });
     }
 
-    // Check doctor exists
+    // Check doctor exists (non-blocking — use fallback data if not found)
     const doctor = await Doctor.findByPk(did);
-    if (!doctor) {
-      return res.status(404).json({ error: `Dokter dengan ID ${did} tidak ditemukan.` });
-    }
+    const doctorName = doctor?.name || bodyDoctorName || `Dokter ID ${did}`;
+    const doctorPoli = doctor?.poli || bodyPoli || '';
 
     // Generate name like APTxxx
     const lastAppt = await Appointment.findOne({ order: [['id', 'DESC']] });
@@ -156,18 +155,18 @@ router.post('/appointments', async (req, res) => {
       patient_id: pid,
       patient_name: patient.name,
       doctor_id: did,
-      doctor_name: doctor.name,
+      doctor_name: doctorName,
       appointment_date: String(appointment_date),
       state: 'submit',
       keluhan: keluhan || '',
-      poli: doctor.poli || '',
+      poli: doctorPoli,
     });
 
     res.status(201).json({
       id: appointment.id,
       name: appointment.name,
       patient: patient.name,
-      doctor: doctor.name,
+      doctor: doctorName,
       appointment_date: appointment.appointment_date,
       state: appointment.state,
       keluhan: appointment.keluhan,
