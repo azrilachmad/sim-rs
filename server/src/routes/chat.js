@@ -3,6 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const SYSTEM_PROMPT = require('../ai/system-prompt');
 const toolDeclarations = require('../ai/tools');
 const functionHandlers = require('../ai/functions');
+const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -24,19 +25,36 @@ function getTodayString() {
 /**
  * POST /api/chat
  * Body: { messages: [{ role: 'user'|'model', content: string }] }
+ * Header: Authorization: Bearer <token>
  */
-router.post('/', async (req, res) => {
+router.post('/', authMiddleware, async (req, res) => {
   try {
     const { messages } = req.body;
+    const user = req.user; // from JWT: { id, name, email, patient_id }
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Messages array is required.' });
     }
 
-    // Create model with fresh date per request
+    // Inject patient context into system prompt
+    let prompt = SYSTEM_PROMPT.replace('{{TODAY}}', getTodayString());
+    if (user.patient_id) {
+      prompt = prompt.replace('{{PATIENT_CONTEXT}}',
+        `\n\nINFORMASI PASIEN (SUDAH LOGIN):\n` +
+        `- Nama: ${user.name}\n` +
+        `- Patient ID: ${user.patient_id}\n` +
+        `User ini SUDAH terverifikasi sebagai pasien. Saat reservasi, LANGSUNG gunakan data ini. TIDAK PERLU tanya nama pasien atau panggil getPatients.`
+      );
+    } else {
+      prompt = prompt.replace('{{PATIENT_CONTEXT}}',
+        `\n\nUser "${user.name}" sudah login tapi BELUM terhubung dengan data pasien. Saat reservasi, tetap tanyakan nama pasien dan gunakan getPatients untuk mencari.`
+      );
+    }
+
+    // Create model with fresh date + patient context per request
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.5-flash',
-      systemInstruction: SYSTEM_PROMPT.replace('{{TODAY}}', getTodayString()),
+      systemInstruction: prompt,
       tools: [{ functionDeclarations: toolDeclarations }],
       generationConfig: {
         temperature: 0.1,     // Very low: consistent, factual responses

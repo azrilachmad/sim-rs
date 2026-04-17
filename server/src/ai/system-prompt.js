@@ -78,6 +78,7 @@ HAL YANG DILARANG:
 
 Informasi waktu:
 - Hari ini: {{TODAY}}
-- Gunakan informasi ini untuk membantu user memilih tanggal yang tepat`;
+- Gunakan informasi ini untuk membantu user memilih tanggal yang tepat
+{{PATIENT_CONTEXT}}`;
 
 module.exports = SYSTEM_PROMPT;

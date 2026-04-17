@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const chatRouter = require('./routes/chat');
+const authRouter = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -17,6 +18,7 @@ app.use(cors({
 app.use(express.json());
 
 // Routes
+app.use('/api/auth', authRouter);
 app.use('/api/chat', chatRouter);
 
 // Only mount local API routes if using local DB
@@ -33,15 +35,17 @@ app.get('/api/health', (req, res) => {
 // Start server
 async function start() {
   try {
-    // Only connect to MySQL if using local API
-    if (USE_LOCAL) {
-      const sequelize = require('./config/database');
-      await sequelize.authenticate();
-      console.log('✅ Database connected.');
-      await sequelize.sync({ alter: true });
-      console.log('✅ Models synced.');
+    // Always connect DB (needed for users table)
+    const sequelize = require('./config/database');
+    await sequelize.authenticate();
+    console.log('✅ Database connected.');
+    await sequelize.sync({ alter: true });
+    console.log('✅ Models synced.');
+
+    if (!USE_LOCAL) {
+      console.log('🌐 Data source: Odoo API');
     } else {
-      console.log('🌐 Using Odoo API (no local DB required).');
+      console.log('💾 Data source: Local MySQL');
     }
 
     app.listen(PORT, () => {

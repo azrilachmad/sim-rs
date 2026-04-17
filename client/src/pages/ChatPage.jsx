@@ -7,10 +7,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SendIcon from '@mui/icons-material/Send';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
+import LogoutIcon from '@mui/icons-material/Logout';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { sendChatMessage } from '../services/api';
+import { sendChatMessage, getCurrentUser, logout } from '../services/api';
 
 const SUGGESTIONS = [
   '📅 Lihat jadwal dokter',
@@ -20,16 +21,22 @@ const SUGGESTIONS = [
 
 export default function ChatPage() {
   const navigate = useNavigate();
+  const user = getCurrentUser();
   const [messages, setMessages] = useState([
     {
       role: 'model',
-      content: 'Halo! 👋 Saya **RS Sehat AI**, asisten virtual rumah sakit Anda.\n\nSaya bisa membantu Anda untuk:\n- 📅 Melihat **jadwal praktek** dokter\n- 📝 Membuat **reservasi** online\n\nSilakan tanyakan apa saja! 😊',
+      content: `Halo${user ? ', **' + user.name + '**' : ''}! 👋 Saya **RS Sehat AI**, asisten virtual rumah sakit Anda.\n\nSaya bisa membantu Anda untuk:\n- 📅 Melihat **jadwal praktek** dokter\n- 📝 Membuat **reservasi** online\n\nSilakan tanyakan apa saja! 😊`,
     },
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -94,6 +101,14 @@ export default function ChatPage() {
             Online
           </p>
         </div>
+        {user && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{user.name}</span>
+            <IconButton onClick={handleLogout} sx={{ color: '#94a3b8' }} size="small" title="Logout">
+              <LogoutIcon fontSize="small" />
+            </IconButton>
+          </div>
+        )}
       </header>
 
       {/* Messages Area */}

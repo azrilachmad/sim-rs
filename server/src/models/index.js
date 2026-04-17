@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const bcrypt = require('bcryptjs');
 const sequelize = require('../config/database');
 
 // ==================== MODELS ====================
@@ -29,9 +30,29 @@ const Patient = sequelize.define('Patient', {
   sex: { type: DataTypes.STRING, defaultValue: '' },
 }, { timestamps: false, tableName: 'patients' });
 
+const User = sequelize.define('User', {
+  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  name: { type: DataTypes.STRING, allowNull: false },
+  email: { type: DataTypes.STRING, allowNull: false, unique: true },
+  password: { type: DataTypes.STRING, allowNull: false },
+  patient_id: { type: DataTypes.INTEGER, allowNull: true },
+}, {
+  timestamps: true,
+  tableName: 'users',
+  hooks: {
+    beforeCreate: async (user) => {
+      user.password = await bcrypt.hashSync(user.password, 10);
+    },
+  },
+});
+
+User.prototype.checkPassword = function (password) {
+  return bcrypt.compareSync(password, this.password);
+};
+
 const Appointment = sequelize.define('Appointment', {
   id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-  name: { type: DataTypes.STRING, defaultValue: '' }, // APTxxx
+  name: { type: DataTypes.STRING, defaultValue: '' },
   patient_id: { type: DataTypes.INTEGER, allowNull: false },
   doctor_id: { type: DataTypes.INTEGER, allowNull: false },
   appointment_date: { type: DataTypes.STRING, allowNull: false },
@@ -51,10 +72,14 @@ Appointment.belongsTo(Doctor, { foreignKey: 'doctor_id', as: 'doctorData' });
 Patient.hasMany(Appointment, { foreignKey: 'patient_id' });
 Appointment.belongsTo(Patient, { foreignKey: 'patient_id', as: 'patientData' });
 
+User.belongsTo(Patient, { foreignKey: 'patient_id', as: 'patient' });
+
 module.exports = {
   sequelize,
   Doctor,
   DoctorSchedule,
   Patient,
+  User,
   Appointment,
 };
+
