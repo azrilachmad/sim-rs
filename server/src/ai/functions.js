@@ -35,11 +35,36 @@ function matchesDoctor(doctor, query) {
 }
 
 /**
- * Format jadwal: group by time slot for compact display
+ * Format jadwal: return structured per-day schedule
+ * Instead of concatenated string, returns clean array
  */
 function formatJadwal(jadwalList) {
+  if (!jadwalList || jadwalList.length === 0) return [];
+
+  // Group by hari, collect time slots
+  const dayOrder = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+  const dayMap = {};
+
+  for (const j of jadwalList) {
+    const hari = j.hari;
+    const jam = j.jadwal_praktek;
+    if (!dayMap[hari]) dayMap[hari] = [];
+    if (!dayMap[hari].includes(jam)) dayMap[hari].push(jam);
+  }
+
+  // Sort by day order, return structured
+  return Object.entries(dayMap)
+    .sort((a, b) => dayOrder.indexOf(a[0]) - dayOrder.indexOf(b[0]))
+    .map(([hari, slots]) => `${hari}: ${slots.join(', ')}`);
+}
+
+/**
+ * Summarize jadwal for compact table display
+ */
+function summarizeJadwal(jadwalList) {
   if (!jadwalList || jadwalList.length === 0) return 'Belum ada jadwal';
 
+  // Group by time slot
   const timeGroups = {};
   for (const j of jadwalList) {
     const time = j.jadwal_praktek;
@@ -49,7 +74,7 @@ function formatJadwal(jadwalList) {
 
   return Object.entries(timeGroups)
     .map(([time, days]) => `${days.join(', ')}: ${time}`)
-    .join(' | ');
+    .join('\n');
 }
 
 /**
@@ -94,7 +119,8 @@ async function getDoctorSchedule({ search } = {}) {
         nama: d.nama_dokter,
         poli: d.poli || '-',
         spesialis: d.spesialis || '-',
-        jadwal: formatJadwal(d.jadwal),
+        jadwal_ringkas: summarizeJadwal(d.jadwal),
+        jadwal_detail: formatJadwal(d.jadwal),
       })),
     };
   } catch (error) {
