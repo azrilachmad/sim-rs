@@ -54,10 +54,12 @@ const Appointment = sequelize.define('Appointment', {
   id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
   name: { type: DataTypes.STRING, defaultValue: '' },
   patient_id: { type: DataTypes.INTEGER, allowNull: false },
+  patient_name: { type: DataTypes.STRING, defaultValue: '' },
   doctor_id: { type: DataTypes.INTEGER, allowNull: false },
+  doctor_name: { type: DataTypes.STRING, defaultValue: '' },
   appointment_date: { type: DataTypes.STRING, allowNull: false },
   state: { type: DataTypes.STRING, defaultValue: 'submit' },
-  keluhan: { type: DataTypes.STRING, defaultValue: '' },
+  keluhan: { type: DataTypes.TEXT, defaultValue: '' },
   poli: { type: DataTypes.STRING, defaultValue: '' },
 }, { timestamps: true, tableName: 'appointments' });
 

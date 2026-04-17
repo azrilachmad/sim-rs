@@ -106,8 +106,43 @@ const seedData = async () => {
     }
     console.log(`✅ Patients seeded: ${patients.length} records (from Odoo)`);
 
-    // --- APPOINTMENTS: SKIPPED ---
-    console.log('⏭️  Appointments: tabel dibuat, data TIDAK di-seed (kosong).');
+    // --- APPOINTMENTS (from Odoo, with pagination) ---
+    console.log('📡 Fetching appointments from Odoo API...');
+    let allAppointments = [];
+    let offset = 0;
+    const limit = 10;
+    let total = 0;
+
+    // Fetch first page to get total count
+    const firstPage = await fetchOdoo(`/api/v1/appointments?limit=${limit}&offset=0`);
+    total = firstPage.total || 0;
+    allAppointments = allAppointments.concat(firstPage.data || []);
+    offset += limit;
+
+    // Fetch remaining pages
+    while (offset < total) {
+      const page = await fetchOdoo(`/api/v1/appointments?limit=${limit}&offset=${offset}`);
+      allAppointments = allAppointments.concat(page.data || []);
+      offset += limit;
+    }
+
+    console.log(`📋 Total appointments fetched: ${allAppointments.length}`);
+
+    for (const apt of allAppointments) {
+      await Appointment.create({
+        id: apt.id,
+        name: apt.name || '',
+        patient_id: apt.patient_id || 0,
+        patient_name: apt.patient || '',
+        doctor_id: apt.doctor_id || 0,
+        doctor_name: apt.doctor || '',
+        appointment_date: apt.appointment_date || '',
+        state: apt.state || 'submit',
+        keluhan: apt.keluhan || '',
+        poli: apt.poli || '',
+      });
+    }
+    console.log(`✅ Appointments seeded: ${allAppointments.length} records (from Odoo)`);
 
     console.log('\n🎉 Seeding selesai! Data dari Odoo API berhasil disinkronkan.');
     process.exit(0);
