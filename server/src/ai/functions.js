@@ -83,8 +83,25 @@ function summarizeJadwal(jadwalList) {
  */
 async function getDoctorSchedule({ search, offset = 0 } = {}) {
   try {
-    const result = await odooApi.getJadwalDokter();
-    let data = result.data || [];
+    const { Doctor, DoctorSchedule } = require('../models');
+    
+    // Fetch all doctors with their schedules from local DB
+    const doctors = await Doctor.findAll({
+      include: [{ model: DoctorSchedule, as: 'jadwal' }],
+      order: [['id', 'ASC']]
+    });
+
+    let data = doctors.map(d => ({
+      id: d.id,
+      nama_dokter: d.name,
+      kode: d.kode,
+      poli: d.poli,
+      spesialis: d.spesialis,
+      jadwal: (d.jadwal || []).map(j => ({
+        hari: j.hari,
+        jadwal_praktek: j.jadwal_praktek,
+      })),
+    }));
 
     if (search) {
       data = data.filter(d => matchesDoctor(d, search));
@@ -137,13 +154,21 @@ async function getDoctorSchedule({ search, offset = 0 } = {}) {
  */
 async function getPatients({ name } = {}) {
   try {
-    const result = await odooApi.getPatients();
-    let patients = result.data || [];
+    const { Patient } = require('../models');
+    const { Op } = require('sequelize');
 
+    let whereClause = {};
     if (name) {
-      const q = name.toLowerCase();
-      patients = patients.filter(p => (p.name || '').toLowerCase().includes(q));
+      whereClause.name = {
+        [Op.like]: `%${name}%`
+      };
     }
+
+    const patients = await Patient.findAll({
+      where: whereClause,
+      limit: 10,
+      order: [['id', 'ASC']]
+    });
 
     if (patients.length === 0) {
       return {
@@ -155,7 +180,7 @@ async function getPatients({ name } = {}) {
 
     return {
       jumlah: patients.length,
-      data: patients.slice(0, 10).map(p => ({
+      data: patients.map(p => ({
         id: p.id,
         nama: p.name,
         noMR: p.no_mr,
@@ -174,6 +199,8 @@ async function getPatients({ name } = {}) {
  */
 async function createAppointment({ patient_id, doctor_id, appointment_date, keluhan }) {
   try {
+    const { Patient, Doctor, Appointment } = require('../models');
+
     const pid = parseInt(patient_id);
     const did = parseInt(doctor_id);
 
@@ -200,17 +227,47 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
       return { success: false, message: 'Keluhan pasien wajib diisi.' };
     }
 
-    const result = await odooApi.createAppointment({
+    // Fetch patient and doctor to get names/Poli
+    const patient = await Patient.findByPk(pid);
+    if (!patient) {
+        return { success: false, message: `Pasien dengan ID ${pid} tidak ditemukan di database kami.` };
+    }
+
+    const doctor = await Doctor.findByPk(did);
+    if (!doctor) {
+        return { success: false, message: `Dokter dengan ID ${did} tidak ditemukan di database kami.` };
+    }
+
+    // Generate appointment name
+    const lastAppt = await Appointment.findOne({ order: [['id', 'DESC']] });
+    const nextId = (lastAppt?.id || 0) + 1;
+    const name = `APT${nextId}`;
+
+    const appointment = await Appointment.create({
+      name,
       patient_id: pid,
+      patient_name: patient.name,
       doctor_id: did,
+      doctor_name: doctor.name,
       appointment_date: String(appointment_date),
+      state: 'submit',
       keluhan: keluhan.trim(),
+      poli: doctor.poli || '',
     });
 
     return {
       success: true,
       message: 'Appointment berhasil dibuat!',
-      data: result,
+      data: {
+          id: appointment.id,
+          name: appointment.name,
+          patient: patient.name,
+          doctor: doctor.name,
+          appointment_date: appointment.appointment_date,
+          state: appointment.state,
+          keluhan: appointment.keluhan,
+          poli: appointment.poli,
+      },
     };
   } catch (error) {
     console.error('❌ createAppointment error:', error.message);
