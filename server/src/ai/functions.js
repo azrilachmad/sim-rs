@@ -210,8 +210,8 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
 
     // Hit Odoo API
     const result = await odooApi.createAppointment({
-      patient_id: pid,
-      doctor_id: did,
+      patient: pid,
+      doctor: did,
       appointment_date: String(appointment_date),
       keluhan: keluhan.trim(),
     });
