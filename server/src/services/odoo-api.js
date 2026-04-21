@@ -87,7 +87,13 @@ async function getAppointments(limit = 10, offset = 0) {
 }
 
 async function createAppointment(data) {
-  return odooFetch('/api/v1/appointments', { method: 'POST', body: data });
+  const query = new URLSearchParams();
+  if (data.patient_id) query.append('patient_id', data.patient_id);
+  if (data.doctor_id) query.append('doctor_id', data.doctor_id);
+  if (data.appointment_date) query.append('appointment_date', data.appointment_date);
+  if (data.keluhan) query.append('keluhan', data.keluhan);
+  
+  return odooFetch(`/api/v1/appointments?${query.toString()}`, { method: 'POST', body: data });
 }
 
 async function updateAppointment(id, data) {
