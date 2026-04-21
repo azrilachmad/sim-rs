@@ -26,7 +26,14 @@ async function odooFetch(endpoint, options = {}) {
   };
 
   if (options.body) {
-    config.body = JSON.stringify(options.body);
+    if (!USE_LOCAL) {
+      config.body = JSON.stringify({ 
+        jsonrpc: "2.0", 
+        params: options.body 
+      });
+    } else {
+      config.body = JSON.stringify(options.body);
+    }
   }
 
   const source = USE_LOCAL ? 'LOCAL' : 'ODOO';
@@ -46,7 +53,21 @@ async function odooFetch(endpoint, options = {}) {
     throw new Error(detail || `API error: ${response.status}`);
   }
 
-  return response.json();
+  const jsonResponse = await response.json();
+
+  // Handle Odoo JSON-RPC errors (which typically return HTTP 200)
+  if (jsonResponse.error) {
+    const errorMsg = jsonResponse.error.data?.message || jsonResponse.error.message || 'Unknown Odoo error';
+    console.error(`❌ API JSON-RPC error: ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
+  // Transparently unwrap JSON-RPC result envelope if it exists
+  if (jsonResponse.result !== undefined) {
+    return jsonResponse.result;
+  }
+
+  return jsonResponse;
 }
 
 async function getDoctors() {

@@ -114,22 +114,10 @@ async function getDoctorSchedule({ search, offset = 0 } = {}) {
       };
     }
 
-    // Pagination
-    const MAX_DISPLAY = 5;
-    const startIdx = parseInt(offset) || 0;
-    const displayed = withSchedule.slice(startIdx, startIdx + MAX_DISPLAY);
-    const remaining = withSchedule.length - (startIdx + displayed.length);
-
     return {
       jumlah_total: withSchedule.length,
-      jumlah_ditampilkan: displayed.length,
-      offset_saat_ini: startIdx,
-      offset_berikutnya: remaining > 0 ? startIdx + MAX_DISPLAY : null,
-      sisa_belum_ditampilkan: remaining > 0 ? remaining : 0,
-      pesan: remaining > 0
-        ? `Menampilkan ${displayed.length} dari ${withSchedule.length} dokter (offset: ${startIdx}). Untuk melihat lebih banyak, panggil lagi dengan offset: ${startIdx + MAX_DISPLAY}.`
-        : `Semua ${withSchedule.length} dokter sudah ditampilkan.`,
-      dokter: displayed.map(d => ({
+      pesan: `Menampilkan semua ${withSchedule.length} dokter yang tersedia.`,
+      dokter: withSchedule.map(d => ({
         id: d.id,
         nama: d.nama_dokter,
         poli: d.poli || '-',
