@@ -26,7 +26,14 @@ async function odooFetch(endpoint, options = {}) {
   };
 
   if (options.body) {
-    config.body = JSON.stringify(options.body);
+    if (!USE_LOCAL) {
+      config.body = JSON.stringify({ 
+        jsonrpc: "2.0", 
+        params: options.body 
+      });
+    } else {
+      config.body = JSON.stringify(options.body);
+    }
   }
 
   const source = USE_LOCAL ? 'LOCAL' : 'ODOO';
