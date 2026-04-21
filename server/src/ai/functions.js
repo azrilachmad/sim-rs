@@ -84,7 +84,10 @@ function summarizeJadwal(jadwalList) {
 async function getDoctorSchedule({ search, offset = 0 } = {}) {
   try {
     const response = await odooApi.getJadwalDokter();
-    const doctors = response.data || [];
+    let doctors = [];
+    if (Array.isArray(response)) doctors = response;
+    else if (response && Array.isArray(response.data)) doctors = response.data;
+    else if (response && Array.isArray(response.result)) doctors = response.result;
 
     let data = doctors.map(d => ({
       id: d.id,
@@ -138,7 +141,10 @@ async function getDoctorSchedule({ search, offset = 0 } = {}) {
 async function getPatients({ name } = {}) {
   try {
     const response = await odooApi.getPatients();
-    let patients = response.data || [];
+    let patients = [];
+    if (Array.isArray(response)) patients = response;
+    else if (response && Array.isArray(response.data)) patients = response.data;
+    else if (response && Array.isArray(response.result)) patients = response.result;
 
     if (name) {
       const searchName = name.toLowerCase();

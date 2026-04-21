@@ -69,7 +69,7 @@ router.post('/', async (req, res) => {
     let response = result.response;
 
     // Handle function calling loop
-    const maxIterations = 5; // Reduced from 10 to prevent over-calling
+    const maxIterations = 8; // Increased to 8 to allow ample retries for data fetching
     let iteration = 0;
 
     while (iteration < maxIterations) {
@@ -118,9 +118,14 @@ router.post('/', async (req, res) => {
     const textParts = response.candidates?.[0]?.content?.parts?.filter(p => p.text) || [];
     const finalText = textParts.map(p => p.text).join('\n');
 
+    // Provide a descriptive fallback if Gemini gets stuck in function loops
+    const emptyFallback = iteration >= maxIterations 
+        ? 'Maaf, proses pencarian memakan waktu lebih lama dari perkiraan. Sistem mencapai batas iterasi. Mohon ulangi permintaan Anda.'
+        : 'Maaf, saya tidak dapat merangkai jawaban dari data yang ditemukan saat ini.';
+
     res.json({
       role: 'model',
-      content: finalText || 'Maaf, saya tidak bisa memproses permintaan Anda saat ini.',
+      content: finalText || emptyFallback,
     });
 
   } catch (error) {
