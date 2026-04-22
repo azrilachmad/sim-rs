@@ -208,13 +208,50 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
       return { success: false, message: 'Keluhan pasien wajib diisi.' };
     }
 
-    // Hit Odoo API
-    const result = await odooApi.createAppointment({
+    // Resolve poli_id and jenis_pelayanan automatically
+    let poli_id = null;
+    let jenis_pelayanan = 'Rawat Jalan'; // fallback default
+    
+    try {
+      const docsResp = await odooApi.getDoctors();
+      const doctors = Array.isArray(docsResp) ? docsResp : docsResp?.data || docsResp?.result || [];
+      const doctor = doctors.find(d => parseInt(d.id) === did);
+      
+      if (doctor && doctor.poli) {
+        const docPoliStr = doctor.poli.trim().toLowerCase();
+        
+        const poliResp = await odooApi.getPoli();
+        const poliList = Array.isArray(poliResp) ? poliResp : poliResp?.data || poliResp?.result || [];
+        
+        let matchedPoli = poliList.find(p => (p.nama_poli || '').trim().toLowerCase() === docPoliStr);
+        if (!matchedPoli) {
+          matchedPoli = poliList.find(p => docPoliStr.includes((p.nama_poli || '').trim().toLowerCase()));
+        }
+        
+        if (matchedPoli) {
+          poli_id = matchedPoli.id;
+          if (matchedPoli.jenis_pelayanan) jenis_pelayanan = matchedPoli.jenis_pelayanan;
+        }
+      }
+    } catch (lookupErr) {
+      console.error('⚠️ Warning: failed to lookup poli details, proceeding with missing info', lookupErr.message);
+    }
+    
+    // Build Payload
+    const payload = {
       patient_id: pid,
       doctor_id: did,
       appointment_date: String(appointment_date),
       keluhan: keluhan.trim(),
-    });
+      jenis_pelayanan: jenis_pelayanan
+    };
+    
+    if (poli_id) {
+       payload.poli_id = poli_id;
+    }
+
+    // Hit Odoo API
+    const result = await odooApi.createAppointment(payload);
 
     return {
       success: true,
