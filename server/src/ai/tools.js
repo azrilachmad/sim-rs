@@ -28,28 +28,32 @@ const toolDeclarations = [
   },
   {
     name: 'createAppointment',
-    description: 'Membuat reservasi/appointment baru. HANYA panggil function ini SETELAH user mengkonfirmasi semua data (jawab "ya/benar/oke"). Parameter patient_id dan doctor_id HARUS berasal dari hasil getPatients dan getDoctorSchedule.',
+    description: 'Membuat reservasi/appointment baru. HANYA panggil SETELAH user konfirmasi "ya/benar/oke". Semua parameter WAJIB diisi dari hasil function sebelumnya (getPatients & getDoctorSchedule).',
     parameters: {
       type: 'object',
       properties: {
         patient_id: {
           type: 'integer',
-          description: 'ID pasien dari hasil getPatients. Contoh: 1. JANGAN gunakan ID yang tidak dari hasil pencarian.',
+          description: 'ID pasien dari hasil getPatients.',
         },
         doctor_id: {
           type: 'integer',
-          description: 'ID dokter dari hasil getDoctorSchedule. Contoh: 90. JANGAN gunakan ID yang tidak dari hasil pencarian.',
+          description: 'ID dokter dari hasil getDoctorSchedule.',
+        },
+        poli: {
+          type: 'string',
+          description: 'Nama poli dokter dari hasil getDoctorSchedule. Contoh: "GIGI", "UMUM", "PENYAKIT DALAM". WAJIB diisi dari data dokter.',
         },
         appointment_date: {
           type: 'string',
-          description: 'Tanggal dan waktu appointment. Format WAJIB: "YYYY-MM-DD HH:MM:SS". Contoh: "2026-04-17 10:00:00". Tanggal HARUS sesuai jadwal dokter.',
+          description: 'Tanggal dan waktu appointment. Format WAJIB: "YYYY-MM-DD HH:MM:SS". Contoh: "2026-04-17 10:00:00".',
         },
         keluhan: {
           type: 'string',
-          description: 'Keluhan pasien dalam bentuk kalimat. Contoh: "Demam tinggi sejak 3 hari yang lalu".',
+          description: 'Keluhan pasien dalam bentuk kalimat.',
         },
       },
-      required: ['patient_id', 'doctor_id', 'appointment_date', 'keluhan'],
+      required: ['patient_id', 'doctor_id', 'poli', 'appointment_date', 'keluhan'],
     },
   },
 ];

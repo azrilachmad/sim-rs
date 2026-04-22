@@ -201,21 +201,25 @@ async function getPatients({ name } = {}) {
 
 /**
  * Create appointment — only call after user confirmation.
- * Automatically resolves poli_id and jenis_pelayanan from doctor data.
+ * Automatically resolves poli_id and jenis_pelayanan from the provided poli name.
  * Error messages returned here are USER-FACING — keep them friendly, no technical details.
  */
-async function createAppointment({ patient_id, doctor_id, appointment_date, keluhan }) {
+async function createAppointment({ patient_id, doctor_id, poli, appointment_date, keluhan }) {
   try {
     const pid = Number(patient_id);
     const did = Number(doctor_id);
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📋 createAppointment START');
-    console.log('   raw args:', JSON.stringify({ patient_id, doctor_id, appointment_date, keluhan }));
-    console.log('   parsed: pid=', pid, ', did=', did);
+    console.log('   raw args:', JSON.stringify({ patient_id, doctor_id, poli, appointment_date, keluhan }));
+    console.log('   parsed: pid=', pid, ', did=', did, ', poli=', poli);
 
     if (!pid || isNaN(pid) || !did || isNaN(did)) {
       return { success: false, message: 'Data pasien atau dokter tidak valid. Silakan ulangi proses reservasi.' };
+    }
+
+    if (!poli || poli.trim() === '') {
+       return { success: false, message: 'Data poli tidak ditemukan. Silakan ulangi proses reservasi.' };
     }
 
     if (!appointment_date) {
@@ -237,86 +241,44 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
       return { success: false, message: 'Keluhan pasien belum diisi.' };
     }
 
-    // ── Step 1: Resolve poli_id from doctor's poli (using cache) ──
+    // ── Step 1: Resolve poli_id from poli string (using cache) ──
     let poli_id = null;
     let jenis_pelayanan = 'Rawat Jalan';
-    let doctorName = '';
-    let doctorPoli = '';
     
-    console.log('🔍 Looking up doctor ID:', did);
-    
-    // Try cached doctors first, then jadwal-dokter as fallback
-    let doctor = null;
+    const docPoliStr = poli.trim().toUpperCase();
+    console.log('🔍 Looking up poli:', docPoliStr);
     
     try {
-      const doctors = await getCachedDoctors();
-      console.log('   Doctors available:', doctors.length, 'records');
-      doctor = doctors.find(d => Number(d.id) === did);
-    } catch (e) {
-      console.warn('⚠️ getDoctors failed, trying jadwal-dokter fallback:', e.message);
-    }
-    
-    // Fallback: search in jadwal-dokter data
-    if (!doctor) {
-      console.log('   Doctor not found in /doctors, trying /jadwal-dokter...');
-      try {
-        const jadwalResp = await odooApi.getJadwalDokter();
-        const jadwalDocs = Array.isArray(jadwalResp) ? jadwalResp : jadwalResp?.data || jadwalResp?.result || [];
-        const jadwalDoc = jadwalDocs.find(d => Number(d.id) === did);
-        if (jadwalDoc) {
-          doctor = {
-            id: jadwalDoc.id,
-            name: jadwalDoc.nama_dokter,
-            poli: jadwalDoc.poli,
-          };
-          console.log('   ✅ Found in jadwal-dokter fallback:', doctor.name);
-        }
-      } catch (e2) {
-        console.error('❌ jadwal-dokter fallback also failed:', e2.message);
-      }
-    }
-    
-    if (!doctor) {
-      console.error('❌ Doctor ID', did, 'not found in any API');
-      return { success: false, message: 'Dokter tidak ditemukan dalam sistem. Silakan ulangi proses reservasi.' };
-    }
-    
-    doctorName = doctor.name || doctor.nama_dokter || '';
-    doctorPoli = doctor.poli || '';
-    console.log('   ✅ Doctor found:', doctorName, '| poli:', doctorPoli);
-    
-    if (doctorPoli) {
-      const docPoliStr = doctorPoli.trim().toUpperCase();
-      console.log('🔍 Looking up poli:', docPoliStr);
+      const poliList = await getCachedPoli();
+      console.log('   Poli available:', poliList.length, 'records');
       
-      try {
-        const poliList = await getCachedPoli();
-        console.log('   Poli available:', poliList.length, 'records');
-        
-        // Exact match first
-        let matchedPoli = poliList.find(p => (p.nama_poli || '').trim().toUpperCase() === docPoliStr);
-        // Partial match fallback
-        if (!matchedPoli) {
-          matchedPoli = poliList.find(p => docPoliStr.includes((p.nama_poli || '').trim().toUpperCase()));
-        }
-        
-        if (matchedPoli) {
-          poli_id = matchedPoli.id;
-          if (matchedPoli.jenis_pelayanan && matchedPoli.jenis_pelayanan !== false) {
-            jenis_pelayanan = matchedPoli.jenis_pelayanan;
-          }
-          console.log('   ✅ Poli matched:', matchedPoli.nama_poli, '| id:', poli_id, '| jenis:', jenis_pelayanan);
-        } else {
-          console.error('   ❌ No poli match for:', docPoliStr);
-        }
-      } catch (poliErr) {
-        console.error('   ❌ Poli lookup failed:', poliErr.message);
+      // Exact match first
+      let matchedPoli = poliList.find(p => (p.nama_poli || '').trim().toUpperCase() === docPoliStr);
+      // Partial match fallback
+      if (!matchedPoli) {
+        matchedPoli = poliList.find(p => docPoliStr.includes((p.nama_poli || '').trim().toUpperCase()));
       }
+      // Reverse partial match fallback
+      if (!matchedPoli) {
+        matchedPoli = poliList.find(p => ((p.nama_poli || '').trim().toUpperCase()).includes(docPoliStr));
+      }
+      
+      if (matchedPoli) {
+        poli_id = matchedPoli.id;
+        if (matchedPoli.jenis_pelayanan && matchedPoli.jenis_pelayanan !== false) {
+          jenis_pelayanan = matchedPoli.jenis_pelayanan;
+        }
+        console.log('   ✅ Poli matched:', matchedPoli.nama_poli, '| id:', poli_id, '| jenis:', jenis_pelayanan);
+      } else {
+        console.error('   ❌ No poli match for:', docPoliStr);
+      }
+    } catch (poliErr) {
+      console.error('   ❌ Poli lookup failed:', poliErr.message);
     }
     
     if (!poli_id) {
       console.error('❌ poli_id is null — cannot proceed');
-      return { success: false, message: 'Tidak dapat menentukan poli untuk dokter ini. Silakan hubungi petugas rumah sakit.' };
+      return { success: false, message: 'Tidak dapat menentukan poli untuk reservasi ini. Silakan hubungi petugas rumah sakit.' };
     }
 
     // ── Step 2: Build & send payload ──
