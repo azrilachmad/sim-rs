@@ -1,5 +1,28 @@
 const odooApi = require('../services/odoo-api');
 
+// ── In-memory cache for doctors & poli (refreshed every 5 minutes) ──
+let cachedDoctors = null;
+let cachedPoli = null;
+let cacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedDoctors() {
+  if (cachedDoctors && Date.now() - cacheTime < CACHE_TTL) return cachedDoctors;
+  const resp = await odooApi.getDoctors();
+  cachedDoctors = Array.isArray(resp) ? resp : resp?.data || resp?.result || [];
+  cacheTime = Date.now();
+  console.log(`📂 Doctors cache refreshed: ${cachedDoctors.length} records`);
+  return cachedDoctors;
+}
+
+async function getCachedPoli() {
+  if (cachedPoli && Date.now() - cacheTime < CACHE_TTL) return cachedPoli;
+  const resp = await odooApi.getPoli();
+  cachedPoli = Array.isArray(resp) ? resp : resp?.data || resp?.result || [];
+  console.log(`📂 Poli cache refreshed: ${cachedPoli.length} records`);
+  return cachedPoli;
+}
+
 /**
  * Normalize name for fuzzy search:
  * strips "dr.", "drg.", "dokter", "ns.", "apt.", titles, punctuation
@@ -36,12 +59,10 @@ function matchesDoctor(doctor, query) {
 
 /**
  * Format jadwal: return structured per-day schedule
- * Instead of concatenated string, returns clean array
  */
 function formatJadwal(jadwalList) {
   if (!jadwalList || jadwalList.length === 0) return [];
 
-  // Group by hari, collect time slots
   const dayOrder = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
   const dayMap = {};
 
@@ -52,7 +73,6 @@ function formatJadwal(jadwalList) {
     if (!dayMap[hari].includes(jam)) dayMap[hari].push(jam);
   }
 
-  // Sort by day order, return structured
   return Object.entries(dayMap)
     .sort((a, b) => dayOrder.indexOf(a[0]) - dayOrder.indexOf(b[0]))
     .map(([hari, slots]) => `${hari}: ${slots.join(', ')}`);
@@ -64,7 +84,6 @@ function formatJadwal(jadwalList) {
 function summarizeJadwal(jadwalList) {
   if (!jadwalList || jadwalList.length === 0) return 'Belum ada jadwal';
 
-  // Group by time slot
   const timeGroups = {};
   for (const j of jadwalList) {
     const time = j.jadwal_praktek;
@@ -79,7 +98,6 @@ function summarizeJadwal(jadwalList) {
 
 /**
  * Get doctor schedules, optionally filtered.
- * Returns max 5 results with pagination hint.
  */
 async function getDoctorSchedule({ search, offset = 0 } = {}) {
   try {
@@ -116,6 +134,10 @@ async function getDoctorSchedule({ search, offset = 0 } = {}) {
         dokter: [],
       };
     }
+
+    // Pre-warm the cache for later use in createAppointment
+    getCachedDoctors().catch(() => {});
+    getCachedPoli().catch(() => {});
 
     return {
       jumlah_total: withSchedule.length,
@@ -184,15 +206,15 @@ async function getPatients({ name } = {}) {
  */
 async function createAppointment({ patient_id, doctor_id, appointment_date, keluhan }) {
   try {
-    const pid = parseInt(patient_id);
-    const did = parseInt(doctor_id);
+    const pid = Number(patient_id);
+    const did = Number(doctor_id);
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📋 createAppointment START');
-    console.log('   patient_id:', pid, '| doctor_id:', did);
-    console.log('   date:', appointment_date, '| keluhan:', keluhan);
+    console.log('   raw args:', JSON.stringify({ patient_id, doctor_id, appointment_date, keluhan }));
+    console.log('   parsed: pid=', pid, ', did=', did);
 
-    if (!pid || !did) {
+    if (!pid || isNaN(pid) || !did || isNaN(did)) {
       return { success: false, message: 'Data pasien atau dokter tidak valid. Silakan ulangi proses reservasi.' };
     }
 
@@ -200,9 +222,14 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
       return { success: false, message: 'Tanggal dan jam reservasi belum ditentukan.' };
     }
 
-    // Validate date format
+    // Validate date format — also accept "YYYY-MM-DDTHH:MM:SS" variant
+    let normalizedDate = String(appointment_date).replace('T', ' ');
+    // Ensure seconds are present
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test(normalizedDate)) {
+      normalizedDate += ':00';
+    }
     const dateRegex = /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}$/;
-    if (!dateRegex.test(appointment_date)) {
+    if (!dateRegex.test(normalizedDate)) {
       return { success: false, message: 'Format tanggal tidak sesuai. Gunakan format: YYYY-MM-DD HH:MM:SS' };
     }
 
@@ -210,48 +237,80 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
       return { success: false, message: 'Keluhan pasien belum diisi.' };
     }
 
-    // ── Step 1: Resolve poli_id from doctor's poli ──
+    // ── Step 1: Resolve poli_id from doctor's poli (using cache) ──
     let poli_id = null;
     let jenis_pelayanan = 'Rawat Jalan';
+    let doctorName = '';
+    let doctorPoli = '';
     
     console.log('🔍 Looking up doctor ID:', did);
-    const docsResp = await odooApi.getDoctors();
-    const doctors = Array.isArray(docsResp) ? docsResp : docsResp?.data || docsResp?.result || [];
-    console.log('   Doctors fetched:', doctors.length, 'records');
     
-    const doctor = doctors.find(d => parseInt(d.id) === did);
+    // Try cached doctors first, then jadwal-dokter as fallback
+    let doctor = null;
     
-    if (!doctor) {
-      console.error('❌ Doctor ID', did, 'not found in', doctors.length, 'records');
-      return { success: false, message: 'Dokter tidak ditemukan. Silakan ulangi proses reservasi.' };
+    try {
+      const doctors = await getCachedDoctors();
+      console.log('   Doctors available:', doctors.length, 'records');
+      doctor = doctors.find(d => Number(d.id) === did);
+    } catch (e) {
+      console.warn('⚠️ getDoctors failed, trying jadwal-dokter fallback:', e.message);
     }
     
-    console.log('   Doctor found:', doctor.name, '| poli:', doctor.poli);
+    // Fallback: search in jadwal-dokter data
+    if (!doctor) {
+      console.log('   Doctor not found in /doctors, trying /jadwal-dokter...');
+      try {
+        const jadwalResp = await odooApi.getJadwalDokter();
+        const jadwalDocs = Array.isArray(jadwalResp) ? jadwalResp : jadwalResp?.data || jadwalResp?.result || [];
+        const jadwalDoc = jadwalDocs.find(d => Number(d.id) === did);
+        if (jadwalDoc) {
+          doctor = {
+            id: jadwalDoc.id,
+            name: jadwalDoc.nama_dokter,
+            poli: jadwalDoc.poli,
+          };
+          console.log('   ✅ Found in jadwal-dokter fallback:', doctor.name);
+        }
+      } catch (e2) {
+        console.error('❌ jadwal-dokter fallback also failed:', e2.message);
+      }
+    }
     
-    if (doctor.poli) {
-      const docPoliStr = doctor.poli.trim().toUpperCase();
+    if (!doctor) {
+      console.error('❌ Doctor ID', did, 'not found in any API');
+      return { success: false, message: 'Dokter tidak ditemukan dalam sistem. Silakan ulangi proses reservasi.' };
+    }
+    
+    doctorName = doctor.name || doctor.nama_dokter || '';
+    doctorPoli = doctor.poli || '';
+    console.log('   ✅ Doctor found:', doctorName, '| poli:', doctorPoli);
+    
+    if (doctorPoli) {
+      const docPoliStr = doctorPoli.trim().toUpperCase();
       console.log('🔍 Looking up poli:', docPoliStr);
       
-      const poliResp = await odooApi.getPoli();
-      const poliList = Array.isArray(poliResp) ? poliResp : poliResp?.data || poliResp?.result || [];
-      console.log('   Poli fetched:', poliList.length, 'records');
-      console.log('   Available poli:', poliList.map(p => `${p.nama_poli}(${p.id})`).join(', '));
-      
-      // Exact match first
-      let matchedPoli = poliList.find(p => (p.nama_poli || '').trim().toUpperCase() === docPoliStr);
-      // Partial match fallback
-      if (!matchedPoli) {
-        matchedPoli = poliList.find(p => docPoliStr.includes((p.nama_poli || '').trim().toUpperCase()));
-      }
-      
-      if (matchedPoli) {
-        poli_id = matchedPoli.id;
-        if (matchedPoli.jenis_pelayanan && matchedPoli.jenis_pelayanan !== false) {
-          jenis_pelayanan = matchedPoli.jenis_pelayanan;
+      try {
+        const poliList = await getCachedPoli();
+        console.log('   Poli available:', poliList.length, 'records');
+        
+        // Exact match first
+        let matchedPoli = poliList.find(p => (p.nama_poli || '').trim().toUpperCase() === docPoliStr);
+        // Partial match fallback
+        if (!matchedPoli) {
+          matchedPoli = poliList.find(p => docPoliStr.includes((p.nama_poli || '').trim().toUpperCase()));
         }
-        console.log('✅ Poli matched:', matchedPoli.nama_poli, '| id:', poli_id, '| jenis:', jenis_pelayanan);
-      } else {
-        console.error('❌ No poli match found for:', docPoliStr);
+        
+        if (matchedPoli) {
+          poli_id = matchedPoli.id;
+          if (matchedPoli.jenis_pelayanan && matchedPoli.jenis_pelayanan !== false) {
+            jenis_pelayanan = matchedPoli.jenis_pelayanan;
+          }
+          console.log('   ✅ Poli matched:', matchedPoli.nama_poli, '| id:', poli_id, '| jenis:', jenis_pelayanan);
+        } else {
+          console.error('   ❌ No poli match for:', docPoliStr);
+        }
+      } catch (poliErr) {
+        console.error('   ❌ Poli lookup failed:', poliErr.message);
       }
     }
     
@@ -265,31 +324,32 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
       patient_id: pid,
       doctor_id: did,
       poli_id: poli_id,
-      appointment_date: String(appointment_date),
+      appointment_date: normalizedDate,
       keluhan: keluhan.trim(),
       jenis_pelayanan: jenis_pelayanan,
     };
 
-    console.log('📦 Final payload:', JSON.stringify(payload, null, 2));
+    console.log('📦 PAYLOAD TO ODOO:', JSON.stringify(payload, null, 2));
 
     const result = await odooApi.createAppointment(payload);
 
-    console.log('✅ Appointment created successfully:', JSON.stringify(result));
+    console.log('✅ Appointment created:', JSON.stringify(result));
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return {
       success: true,
       message: 'Reservasi berhasil dibuat!',
       data: result,
+      _debug: { payload_sent: payload },
     };
   } catch (error) {
     console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.error('❌ createAppointment FAILED:', error.message);
     console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    // User-friendly message only — no technical details
     return { 
       success: false, 
-      message: 'Mohon maaf, terjadi kendala saat membuat reservasi. Silakan coba beberapa saat lagi atau hubungi petugas rumah sakit.' 
+      message: 'Mohon maaf, terjadi kendala saat membuat reservasi. Silakan coba beberapa saat lagi atau hubungi petugas rumah sakit.',
+      _debug: { error: error.message },
     };
   }
 }

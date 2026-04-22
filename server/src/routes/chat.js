@@ -72,6 +72,7 @@ router.post('/', async (req, res) => {
     const maxIterations = 10;
     let iteration = 0;
     let lastFunctionResults = null;
+    const debugLog = [];
 
     while (iteration < maxIterations) {
       const candidate = response.candidates?.[0];
@@ -100,6 +101,13 @@ router.post('/', async (req, res) => {
           console.error(`❌ Function ${name} error:`, err.message);
           fnResult = { error: `Gagal menjalankan ${name}: ${err.message}` };
         }
+
+        // Track debug info for frontend visibility
+        debugLog.push({
+          function: name,
+          args: args,
+          result_preview: fnResult?._debug || (fnResult?.success !== undefined ? { success: fnResult.success } : { count: fnResult?.jumlah || fnResult?.jumlah_total }),
+        });
 
         functionResponses.push({
           functionResponse: {
@@ -150,6 +158,10 @@ router.post('/', async (req, res) => {
     res.json({
       role: 'model',
       content: finalText,
+      _debug: {
+        iterations: iteration,
+        function_calls: debugLog,
+      },
     });
 
   } catch (error) {

@@ -40,7 +40,23 @@ export async function sendChatMessage(messages) {
     }
 
     const data = await safeJson(response);
-    console.log(`✅ Response: ${response.status} (${elapsed}ms)`, data);
+    console.log(`✅ Response: ${response.status} (${elapsed}ms)`);
+    
+    // Show backend debug info (Odoo payloads, function calls, etc.)
+    if (data._debug) {
+      console.group('🔍 Backend Debug Info');
+      console.log('Iterations:', data._debug.iterations);
+      if (data._debug.function_calls?.length) {
+        for (const fc of data._debug.function_calls) {
+          console.group(`⚙️ ${fc.function}()`);
+          console.log('Args:', fc.args);
+          console.log('Result:', fc.result_preview);
+          console.groupEnd();
+        }
+      }
+      console.groupEnd();
+    }
+    
     console.groupEnd();
     return data;
   } catch (error) {
