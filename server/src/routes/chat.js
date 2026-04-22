@@ -42,9 +42,9 @@ router.post('/', async (req, res) => {
       systemInstruction: prompt,
       tools: [{ functionDeclarations: toolDeclarations }],
       generationConfig: {
-        temperature: 0.1,     // Very low: consistent, factual responses
-        topP: 0.8,            // Narrow token sampling
-        topK: 20,             // Limited vocabulary choices
+        temperature: 0.3,     // Slightly higher to avoid blank responses
+        topP: 0.85,
+        topK: 30,
         maxOutputTokens: 2048,
       },
     });
@@ -69,8 +69,9 @@ router.post('/', async (req, res) => {
     let response = result.response;
 
     // Handle function calling loop
-    const maxIterations = 8; // Increased to 8 to allow ample retries for data fetching
+    const maxIterations = 10;
     let iteration = 0;
+    let lastFunctionResults = null;
 
     while (iteration < maxIterations) {
       const candidate = response.candidates?.[0];
@@ -86,7 +87,7 @@ router.post('/', async (req, res) => {
 
       for (const part of functionCalls) {
         const { name, args } = part.functionCall;
-        console.log(`🔧 Function call: ${name}`, JSON.stringify(args));
+        console.log(`🔧 Function call [iter ${iteration}]: ${name}`, JSON.stringify(args));
 
         let fnResult;
         try {
@@ -108,6 +109,8 @@ router.post('/', async (req, res) => {
         });
       }
 
+      lastFunctionResults = functionResponses;
+
       // Send function results back to Gemini
       result = await chat.sendMessage(functionResponses);
       response = result.response;
@@ -116,16 +119,37 @@ router.post('/', async (req, res) => {
 
     // Extract final text response
     const textParts = response.candidates?.[0]?.content?.parts?.filter(p => p.text) || [];
-    const finalText = textParts.map(p => p.text).join('\n');
+    let finalText = textParts.map(p => p.text).join('\n').trim();
 
-    // Provide a descriptive fallback if Gemini gets stuck in function loops
-    const emptyFallback = iteration >= maxIterations 
-        ? 'Maaf, proses pencarian memakan waktu lebih lama dari perkiraan. Sistem mencapai batas iterasi. Mohon ulangi permintaan Anda.'
-        : 'Maaf, saya tidak dapat merangkai jawaban dari data yang ditemukan saat ini.';
+    // RETRY: If Gemini returned blank after function calls, nudge it once
+    if (!finalText && lastFunctionResults && iteration < maxIterations) {
+      console.log('⚠️ Gemini returned blank after function calls, retrying with nudge...');
+      try {
+        result = await chat.sendMessage('Berikan jawaban berdasarkan data yang sudah ditemukan.');
+        response = result.response;
+        
+        const retryParts = response.candidates?.[0]?.content?.parts?.filter(p => p.text) || [];
+        finalText = retryParts.map(p => p.text).join('\n').trim();
+        
+        if (finalText) {
+          console.log('✅ Retry successful, got text response');
+        }
+      } catch (retryErr) {
+        console.error('❌ Retry failed:', retryErr.message);
+      }
+    }
+
+    // Final fallback
+    if (!finalText) {
+      console.warn(`⚠️ Empty response after ${iteration} iterations`);
+      finalText = iteration >= maxIterations
+        ? 'Mohon maaf, proses memakan waktu lebih lama dari perkiraan. Silakan coba ulangi permintaan Anda. 🙏'
+        : 'Mohon maaf, terjadi gangguan sementara. Silakan ulangi pertanyaan Anda. 🙏';
+    }
 
     res.json({
       role: 'model',
-      content: finalText || emptyFallback,
+      content: finalText,
     });
 
   } catch (error) {
