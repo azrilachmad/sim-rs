@@ -178,67 +178,89 @@ async function getPatients({ name } = {}) {
 }
 
 /**
- * Create appointment — only call after user confirmation
+ * Create appointment — only call after user confirmation.
+ * Automatically resolves poli_id and jenis_pelayanan from doctor data.
+ * Error messages returned here are USER-FACING — keep them friendly, no technical details.
  */
 async function createAppointment({ patient_id, doctor_id, appointment_date, keluhan }) {
   try {
     const pid = parseInt(patient_id);
     const did = parseInt(doctor_id);
 
-    console.log('🔧 createAppointment args:', { pid, did, appointment_date, keluhan });
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📋 createAppointment START');
+    console.log('   patient_id:', pid, '| doctor_id:', did);
+    console.log('   date:', appointment_date, '| keluhan:', keluhan);
 
     if (!pid || !did) {
-      return { success: false, message: 'patient_id dan doctor_id harus berupa angka valid.' };
+      return { success: false, message: 'Data pasien atau dokter tidak valid. Silakan ulangi proses reservasi.' };
     }
 
     if (!appointment_date) {
-      return { success: false, message: 'appointment_date wajib diisi. Format: YYYY-MM-DD HH:MM:SS' };
+      return { success: false, message: 'Tanggal dan jam reservasi belum ditentukan.' };
     }
 
     // Validate date format
     const dateRegex = /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}$/;
     if (!dateRegex.test(appointment_date)) {
-      return {
-        success: false,
-        message: `Format tanggal salah: "${appointment_date}". Format yang benar: "YYYY-MM-DD HH:MM:SS". Contoh: "2026-04-17 10:00:00".`,
-      };
+      return { success: false, message: 'Format tanggal tidak sesuai. Gunakan format: YYYY-MM-DD HH:MM:SS' };
     }
 
     if (!keluhan || keluhan.trim().length === 0) {
-      return { success: false, message: 'Keluhan pasien wajib diisi.' };
+      return { success: false, message: 'Keluhan pasien belum diisi.' };
     }
 
-    // Resolve poli_id and jenis_pelayanan automatically from doctor's poli
+    // ── Step 1: Resolve poli_id from doctor's poli ──
     let poli_id = null;
-    let jenis_pelayanan = 'Rawat Jalan'; // fallback default
+    let jenis_pelayanan = 'Rawat Jalan';
     
-    try {
-      const docsResp = await odooApi.getDoctors();
-      const doctors = Array.isArray(docsResp) ? docsResp : docsResp?.data || docsResp?.result || [];
-      const doctor = doctors.find(d => parseInt(d.id) === did);
-      
-      if (doctor && doctor.poli) {
-        const docPoliStr = doctor.poli.trim().toLowerCase();
-        
-        const poliResp = await odooApi.getPoli();
-        const poliList = Array.isArray(poliResp) ? poliResp : poliResp?.data || poliResp?.result || [];
-        
-        let matchedPoli = poliList.find(p => (p.nama_poli || '').trim().toLowerCase() === docPoliStr);
-        if (!matchedPoli) {
-          matchedPoli = poliList.find(p => docPoliStr.includes((p.nama_poli || '').trim().toLowerCase()));
-        }
-        
-        if (matchedPoli) {
-          poli_id = matchedPoli.id;
-          if (matchedPoli.jenis_pelayanan) jenis_pelayanan = matchedPoli.jenis_pelayanan;
-        }
-      }
-    } catch (lookupErr) {
-      console.error('⚠️ Poli lookup warning:', lookupErr.message);
+    console.log('🔍 Looking up doctor ID:', did);
+    const docsResp = await odooApi.getDoctors();
+    const doctors = Array.isArray(docsResp) ? docsResp : docsResp?.data || docsResp?.result || [];
+    console.log('   Doctors fetched:', doctors.length, 'records');
+    
+    const doctor = doctors.find(d => parseInt(d.id) === did);
+    
+    if (!doctor) {
+      console.error('❌ Doctor ID', did, 'not found in', doctors.length, 'records');
+      return { success: false, message: 'Dokter tidak ditemukan. Silakan ulangi proses reservasi.' };
     }
     
-    // Build payload matching Odoo collection spec:
-    // { patient_id, doctor_id, poli_id, appointment_date, keluhan, jenis_pelayanan }
+    console.log('   Doctor found:', doctor.name, '| poli:', doctor.poli);
+    
+    if (doctor.poli) {
+      const docPoliStr = doctor.poli.trim().toUpperCase();
+      console.log('🔍 Looking up poli:', docPoliStr);
+      
+      const poliResp = await odooApi.getPoli();
+      const poliList = Array.isArray(poliResp) ? poliResp : poliResp?.data || poliResp?.result || [];
+      console.log('   Poli fetched:', poliList.length, 'records');
+      console.log('   Available poli:', poliList.map(p => `${p.nama_poli}(${p.id})`).join(', '));
+      
+      // Exact match first
+      let matchedPoli = poliList.find(p => (p.nama_poli || '').trim().toUpperCase() === docPoliStr);
+      // Partial match fallback
+      if (!matchedPoli) {
+        matchedPoli = poliList.find(p => docPoliStr.includes((p.nama_poli || '').trim().toUpperCase()));
+      }
+      
+      if (matchedPoli) {
+        poli_id = matchedPoli.id;
+        if (matchedPoli.jenis_pelayanan && matchedPoli.jenis_pelayanan !== false) {
+          jenis_pelayanan = matchedPoli.jenis_pelayanan;
+        }
+        console.log('✅ Poli matched:', matchedPoli.nama_poli, '| id:', poli_id, '| jenis:', jenis_pelayanan);
+      } else {
+        console.error('❌ No poli match found for:', docPoliStr);
+      }
+    }
+    
+    if (!poli_id) {
+      console.error('❌ poli_id is null — cannot proceed');
+      return { success: false, message: 'Tidak dapat menentukan poli untuk dokter ini. Silakan hubungi petugas rumah sakit.' };
+    }
+
+    // ── Step 2: Build & send payload ──
     const payload = {
       patient_id: pid,
       doctor_id: did,
@@ -248,19 +270,27 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
       jenis_pelayanan: jenis_pelayanan,
     };
 
-    console.log('📦 createAppointment payload:', JSON.stringify(payload));
+    console.log('📦 Final payload:', JSON.stringify(payload, null, 2));
 
-    // Hit Odoo API
     const result = await odooApi.createAppointment(payload);
+
+    console.log('✅ Appointment created successfully:', JSON.stringify(result));
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return {
       success: true,
-      message: 'Appointment berhasil dibuat!',
+      message: 'Reservasi berhasil dibuat!',
       data: result,
     };
   } catch (error) {
-    console.error('❌ createAppointment error:', error.message);
-    return { success: false, message: 'Gagal membuat appointment: ' + error.message };
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('❌ createAppointment FAILED:', error.message);
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // User-friendly message only — no technical details
+    return { 
+      success: false, 
+      message: 'Mohon maaf, terjadi kendala saat membuat reservasi. Silakan coba beberapa saat lagi atau hubungi petugas rumah sakit.' 
+    };
   }
 }
 

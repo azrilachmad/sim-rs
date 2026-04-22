@@ -13,19 +13,40 @@ async function safeJson(response) {
 }
 
 /**
- * Send chat message
+ * Send chat message with request/response logging for devtools tracking
  */
 export async function sendChatMessage(messages) {
-  const response = await fetch(`${API_BASE}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages }),
-  });
+  const startTime = performance.now();
+  const requestPayload = { messages };
 
-  if (!response.ok) {
-    const error = await safeJson(response).catch(() => ({}));
-    throw new Error(error.error || 'Gagal menghubungi server.');
+  console.group(`🔵 API Request: POST /api/chat`);
+  console.log('📤 Payload:', requestPayload);
+  console.log('⏱️ Started at:', new Date().toLocaleTimeString());
+
+  try {
+    const response = await fetch(`${API_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestPayload),
+    });
+
+    const elapsed = Math.round(performance.now() - startTime);
+
+    if (!response.ok) {
+      const error = await safeJson(response).catch(() => ({}));
+      console.error(`❌ Response: ${response.status} (${elapsed}ms)`, error);
+      console.groupEnd();
+      throw new Error(error.error || 'Gagal menghubungi server.');
+    }
+
+    const data = await safeJson(response);
+    console.log(`✅ Response: ${response.status} (${elapsed}ms)`, data);
+    console.groupEnd();
+    return data;
+  } catch (error) {
+    const elapsed = Math.round(performance.now() - startTime);
+    console.error(`❌ Request failed (${elapsed}ms):`, error.message);
+    console.groupEnd();
+    throw error;
   }
-
-  return safeJson(response);
 }
