@@ -208,7 +208,7 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
       return { success: false, message: 'Keluhan pasien wajib diisi.' };
     }
 
-    // Resolve poli_id and jenis_pelayanan automatically
+    // Resolve poli_id and jenis_pelayanan automatically from doctor's poli
     let poli_id = null;
     let jenis_pelayanan = 'Rawat Jalan'; // fallback default
     
@@ -234,21 +234,21 @@ async function createAppointment({ patient_id, doctor_id, appointment_date, kelu
         }
       }
     } catch (lookupErr) {
-      console.error('⚠️ Warning: failed to lookup poli details, proceeding with missing info', lookupErr.message);
+      console.error('⚠️ Poli lookup warning:', lookupErr.message);
     }
     
-    // Build Payload
+    // Build payload matching Odoo collection spec:
+    // { patient_id, doctor_id, poli_id, appointment_date, keluhan, jenis_pelayanan }
     const payload = {
       patient_id: pid,
       doctor_id: did,
+      poli_id: poli_id,
       appointment_date: String(appointment_date),
       keluhan: keluhan.trim(),
-      jenis_pelayanan: jenis_pelayanan
+      jenis_pelayanan: jenis_pelayanan,
     };
-    
-    if (poli_id) {
-       payload.poli_id = poli_id;
-    }
+
+    console.log('📦 createAppointment payload:', JSON.stringify(payload));
 
     // Hit Odoo API
     const result = await odooApi.createAppointment(payload);
